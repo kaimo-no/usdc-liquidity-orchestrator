@@ -15,6 +15,25 @@ type Required struct {
 	Incomplete   bool   `json:"incomplete,omitempty"`
 }
 
+// Orchestration is optional agent setup: target + allowed sources + rail preference.
+type Orchestration struct {
+	TargetChainCAIP2   string   `json:"target_chain_caip2,omitempty"`
+	SourceChainCAIP2s  []string `json:"source_chain_caip2s,omitempty"`
+	AllowCircleGateway *bool    `json:"allow_circle_gateway,omitempty"` // nil = true
+	PreferRail         string   `json:"prefer_rail,omitempty"`          // auto | circle_gateway | cctp_fast
+}
+
+// Fee is the optional kaimo orchestration fee on a plan (not a fund-rail recipient).
+type Fee struct {
+	Bps           int64  `json:"bps,omitempty"`
+	AmountAtomic  string `json:"amount_atomic,omitempty"`
+	Recipient     string `json:"recipient,omitempty"`
+	RecipientRole string `json:"recipient_role,omitempty"` // orchestrator
+	SettleVia     string `json:"settle_via,omitempty"`     // x402
+	ChainCAIP2    string `json:"chain_caip2,omitempty"`
+	Asset         string `json:"asset,omitempty"`
+}
+
 // Plan is the dry/execute plan envelope returned to agents.
 type Plan struct {
 	Action              string     `json:"action"`
@@ -27,6 +46,7 @@ type Plan struct {
 	Executed            bool       `json:"executed"`
 	DryRun              bool       `json:"dry_run"`
 	AmountSource        string     `json:"amount_source,omitempty"`
+	Fee                 *Fee       `json:"fee,omitempty"`
 }
 
 // PlanStep is one fund-movement or note. Fund steps use recipient_role=agent_self.
@@ -56,10 +76,13 @@ type Balance struct {
 
 // PlanRequest is the HTTP/MCP plan input.
 type PlanRequest struct {
-	Required       Required  `json:"required"`
-	Inventory      Inventory `json:"inventory"`
-	AmountOverride string    `json:"amount_override,omitempty"`
-	Execute        bool      `json:"execute,omitempty"`
+	Required       Required       `json:"required"`
+	Inventory      Inventory      `json:"inventory"`
+	Orchestration  *Orchestration `json:"orchestration,omitempty"`
+	AmountOverride string         `json:"amount_override,omitempty"`
+	FeeBps         int64          `json:"fee_bps,omitempty"`
+	FeeRecipient   string         `json:"fee_recipient,omitempty"`
+	Execute        bool           `json:"execute,omitempty"`
 }
 
 // PlanResponse is the HTTP plan output.
@@ -72,4 +95,19 @@ type PlanResponse struct {
 type APIError struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+}
+
+// ChainInfo is a registry row for discovery (GET /v1/chains).
+type ChainInfo struct {
+	CAIP2         string `json:"chain_caip2"`
+	Name          string `json:"name"`
+	GatewayDomain int    `json:"gateway_domain"`
+	USDC          string `json:"usdc"`
+	GatewayOK     bool   `json:"gateway_ok"`
+	CCTPOK        bool   `json:"cctp_ok"`
+}
+
+// ChainsResponse is the GET /v1/chains body.
+type ChainsResponse struct {
+	Chains []ChainInfo `json:"chains"`
 }

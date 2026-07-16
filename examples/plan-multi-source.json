@@ -12,20 +12,16 @@
     "agent_address": "0xAgentSelf000000000000000000000000000001",
     "balances": [
       {
-        "asset": "USDC",
-        "amount_atomic": "100000000",
-        "location": "circle_gateway"
-      },
-      {
-        "chain_caip2": "eip155:5042002",
-        "asset": "0x3600000000000000000000000000000000000000",
-        "amount_atomic": "20000000",
+        "chain_caip2": "eip155:84532",
+        "asset": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+        "amount_atomic": "50000000",
         "location": "native"
       }
     ]
   },
   "orchestration": {
     "target_chain_caip2": "eip155:5042002",
+    "source_chain_caip2s": ["eip155:84532", "eip155:421614"],
     "allow_circle_gateway": true,
     "prefer_rail": "circle_gateway"
   },
