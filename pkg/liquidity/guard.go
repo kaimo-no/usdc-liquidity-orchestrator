@@ -45,61 +45,92 @@ func (g *Guard) CheckPrepare(req Required, inv Inventory) error {
 // Fail-closed for future live Executors: never bootstrap agent from step recipients;
 // require pay_to when fund-moving; refuse unknown step kinds; cap step amounts.
 func (g *Guard) CheckPlan(p Plan) error {
-	hasFund := false
-	for _, s := range p.Steps {
-		fund, err := classifyStep(s)
-		if err != nil {
-			return err
-		}
-		if fund {
-			hasFund = true
-		}
+	hasFund, err := planHasFundSteps(p.Steps)
+	if err != nil {
+		return err
 	}
 	agent := strings.TrimSpace(p.agentAddress)
-	if hasFund {
-		if strings.TrimSpace(p.Required.PayTo) == "" {
-			return liqerr.New(liqerr.CodeInsufficientLiquidity,
-				"liquidity: empty pay_to — refuse plan")
-		}
-		if agent == "" {
-			return liqerr.New(liqerr.CodeInvalidQuery,
-				"liquidity: agent_address required for fund-moving plan (refuse bootstrap from steps)")
-		}
+	if err := checkFundPlanIdentity(hasFund, p.Required, agent); err != nil {
+		return err
 	}
 	for _, s := range p.Steps {
-		fund, _ := classifyStep(s)
-		if fund {
-			if err := checkFundStep(s, p.Required, agent, g); err != nil {
-				return err
-			}
-		}
-		if err := checkFeeStep(s, p.Required); err != nil {
+		if err := checkPlanStep(s, p.Required, agent, g); err != nil {
 			return err
 		}
 	}
 	if err := checkPlanFee(p); err != nil {
 		return err
 	}
-	if g != nil && g.MaxAmountAtomic.IsPositive() {
-		if p.Required.AmountAtomic.GreaterThan(g.MaxAmountAtomic) {
-			return liqerr.New(liqerr.CodeInsufficientLiquidity,
-				"liquidity: plan amount %s exceeds MaxAmountAtomic %s",
-				p.Required.AmountAtomic.String(), g.MaxAmountAtomic.String())
+	return checkMaxAmounts(g, p)
+}
+
+func planHasFundSteps(steps []PlanStep) (bool, error) {
+	hasFund := false
+	for _, s := range steps {
+		fund, err := classifyStep(s)
+		if err != nil {
+			return false, err
 		}
-		for _, s := range p.Steps {
-			fund, _ := classifyStep(s)
-			if !fund {
-				continue
-			}
-			if !s.AmountAtomic.IsPositive() {
-				return liqerr.New(liqerr.CodeInvalidQuery,
-					"liquidity: fund-moving step amount must be positive")
-			}
-			if s.AmountAtomic.GreaterThan(g.MaxAmountAtomic) {
-				return liqerr.New(liqerr.CodeInsufficientLiquidity,
-					"liquidity: step amount %s exceeds MaxAmountAtomic %s",
-					s.AmountAtomic.String(), g.MaxAmountAtomic.String())
-			}
+		if fund {
+			hasFund = true
+		}
+	}
+	return hasFund, nil
+}
+
+func checkFundPlanIdentity(hasFund bool, req Required, agent string) error {
+	if !hasFund {
+		return nil
+	}
+	if strings.TrimSpace(req.PayTo) == "" {
+		return liqerr.New(liqerr.CodeInsufficientLiquidity,
+			"liquidity: empty pay_to — refuse plan")
+	}
+	if agent == "" {
+		return liqerr.New(liqerr.CodeInvalidQuery,
+			"liquidity: agent_address required for fund-moving plan (refuse bootstrap from steps)")
+	}
+	return nil
+}
+
+func checkPlanStep(s PlanStep, req Required, agent string, g *Guard) error {
+	fund, err := classifyStep(s)
+	if err != nil {
+		return err
+	}
+	if fund {
+		if err := checkFundStep(s, req, agent, g); err != nil {
+			return err
+		}
+	}
+	return checkFeeStep(s, req)
+}
+
+func checkMaxAmounts(g *Guard, p Plan) error {
+	if g == nil || !g.MaxAmountAtomic.IsPositive() {
+		return nil
+	}
+	if p.Required.AmountAtomic.GreaterThan(g.MaxAmountAtomic) {
+		return liqerr.New(liqerr.CodeInsufficientLiquidity,
+			"liquidity: plan amount %s exceeds MaxAmountAtomic %s",
+			p.Required.AmountAtomic.String(), g.MaxAmountAtomic.String())
+	}
+	for _, s := range p.Steps {
+		fund, err := classifyStep(s)
+		if err != nil {
+			return err
+		}
+		if !fund {
+			continue
+		}
+		if !s.AmountAtomic.IsPositive() {
+			return liqerr.New(liqerr.CodeInvalidQuery,
+				"liquidity: fund-moving step amount must be positive")
+		}
+		if s.AmountAtomic.GreaterThan(g.MaxAmountAtomic) {
+			return liqerr.New(liqerr.CodeInsufficientLiquidity,
+				"liquidity: step amount %s exceeds MaxAmountAtomic %s",
+				s.AmountAtomic.String(), g.MaxAmountAtomic.String())
 		}
 	}
 	return nil
@@ -151,11 +182,6 @@ func checkFundStep(s PlanStep, req Required, agent string, g *Guard) error {
 			"liquidity: step recipient not in AllowedAgentAddresses")
 	}
 	return nil
-}
-
-func isFundMovingKind(kind string) bool {
-	fund, err := classifyStep(PlanStep{Kind: kind})
-	return err == nil && fund
 }
 
 func checkFeeStep(s PlanStep, req Required) error {
