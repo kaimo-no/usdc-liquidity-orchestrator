@@ -1,0 +1,5 @@
+# USDC Liquidity Orchestrator
+bin/
+*.exe
+coverage.out
+.DS_Store
