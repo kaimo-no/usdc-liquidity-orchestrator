@@ -13,9 +13,9 @@ import (
 	"os"
 	"time"
 
-	liqerr "github.com/kilian1103/usdc-liquidity-orchestrator/pkg/errors"
-	"github.com/kilian1103/usdc-liquidity-orchestrator/pkg/liquidity"
-	"github.com/kilian1103/usdc-liquidity-orchestrator/pkg/types"
+	liqerr "github.com/kaimo-no/usdc-liquidity-orchestrator/pkg/errors"
+	"github.com/kaimo-no/usdc-liquidity-orchestrator/pkg/liquidity"
+	"github.com/kaimo-no/usdc-liquidity-orchestrator/pkg/types"
 )
 
 func main() {

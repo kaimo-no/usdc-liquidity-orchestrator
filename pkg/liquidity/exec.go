@@ -3,7 +3,7 @@ package liquidity
 import (
 	"context"
 
-	liqerr "github.com/kilian1103/usdc-liquidity-orchestrator/pkg/errors"
+	liqerr "github.com/kaimo-no/usdc-liquidity-orchestrator/pkg/errors"
 )
 
 // Receipt is a future execute receipt (unused while unconfigured).

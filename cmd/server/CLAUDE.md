@@ -1,0 +1,17 @@
+# cmd/server/
+
+Thin HTTP microservice wrapping `pkg/liquidity`.
+
+## Routes
+
+| Method | Path | Behaviour |
+|---|---|---|
+| GET | `/healthz` | `ok` |
+| POST | `/v1/plan` | Decode `PlanRequest` → plan; force dry stamps; `execute=true` → UnconfiguredExecutor error + plan body |
+
+## Invariants
+
+- Max body 1 MiB
+- Never log request bodies (wallet inventory)
+- No auth required for local/hackathon; production may add bearer later
+- Env: `LISTEN_ADDR` (default `:8088`)

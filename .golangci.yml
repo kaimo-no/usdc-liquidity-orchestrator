@@ -1,0 +1,63 @@
+version: "2"
+linters:
+  default: none
+  enable:
+    - errcheck
+    - gocyclo
+    - govet
+    - ineffassign
+    - revive
+    - staticcheck
+    - unused
+    - unparam
+    - gosec
+  settings:
+    gocyclo:
+      min-complexity: 18
+    revive:
+      rules:
+        - name: var-naming
+        - name: unused-parameter
+          disabled: true
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - errcheck
+          - gocyclo
+          - unparam
+        path: _test\.go
+      - linters:
+          - gosec
+        path: _test\.go
+      - linters:
+          - gosec
+        text: 'G101: Potential hardcoded credentials'
+      - linters:
+          - gosec
+        text: 'G306: Expect WriteFile permissions to be 0600 or less'
+      - linters:
+          - gosec
+        path: core/sources/extract/extract.go
+        text: 'G401: Use of weak cryptographic primitive|G505: Blocklisted import crypto/sha1'
+      # surfaced by gosec/staticcheck after golangci-lint v2 migration (via golangci-lint-action v9):
+      - linters:
+          - gosec
+        text: 'G706: Log injection via taint analysis'
+      - linters:
+          - staticcheck
+        text: 'QF1001:|QF1002:'
+formatters:
+  enable:
+    - gofmt
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
