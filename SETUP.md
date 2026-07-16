@@ -26,14 +26,17 @@ bash scripts/check-test-layout.sh
 go run ./cmd/demo
 ```
 
-Expect `circle_gateway_deposit_withdraw` with shortfall steps (22 USDC atomic units when need=42, Base has 20, Arb has 30).
+Expect Arc Testnet `circle_gateway_withdraw` shortfall 22 USDC (need 42, native Arc 20, gateway covers rest) to `agent_self`, plus optional fee metadata (`settle_via=x402`).
+
+Legacy Base/Arb fragmented example: `examples/plan-base-fragmented.json`.
 
 ## HTTP server
 
 ```bash
 go run ./cmd/server
 # another terminal:
-bash examples/curl.sh
+bash examples/curl.sh              # Arc + gateway (default)
+curl -s localhost:8088/v1/chains | jq .
 ```
 
 ## Agent / IDE

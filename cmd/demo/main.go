@@ -1,5 +1,6 @@
 // Command demo runs the hackathon worked example:
-// merchant wants 42 USDC on Base; agent has 30 on Arbitrum + 20 on Base.
+// merchant wants 42 USDC on Arc Testnet via x402; agent funds from circle_gateway
+// unified balance (shortfall-only to agent_self) with optional kaimo fee.
 package main
 
 import (
@@ -14,18 +15,18 @@ import (
 
 func main() {
 	const (
-		base  = "eip155:8453"
-		arb   = "eip155:42161"
-		usdc  = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
-		payTo = "0xMerchantOnBase0000000000000000000001"
-		agent = "0xAgentSelf000000000000000000000000000001"
-		need  = "42000000" // 42 USDC (6 decimals)
+		arc     = "eip155:5042002"
+		arcUSDC = "0x3600000000000000000000000000000000000000"
+		payTo   = "0xMerchantOnArc000000000000000000000001"
+		agent   = "0xAgentSelf000000000000000000000000000001"
+		feeTo   = "0xKaimoFee000000000000000000000000000001"
+		need    = "42000000" // 42 USDC (6 decimals)
 	)
 
 	req := liquidity.Required{
 		Protocol:     "x402",
-		ChainCAIP2:   base,
-		Asset:        usdc,
+		ChainCAIP2:   arc,
+		Asset:        arcUSDC,
 		PayTo:        payTo,
 		AmountAtomic: decimal.RequireFromString(need),
 		AmountSource: liquidity.AmountSourceProbe,
@@ -33,12 +34,24 @@ func main() {
 	inv := liquidity.Inventory{
 		AgentAddress: agent,
 		Balances: []liquidity.Balance{
-			{ChainCAIP2: arb, Asset: usdc, AmountAtomic: decimal.RequireFromString("30000000"), Location: liquidity.LocationNative},
-			{ChainCAIP2: base, Asset: usdc, AmountAtomic: decimal.RequireFromString("20000000"), Location: liquidity.LocationNative},
+			// Unified Gateway balance (preferred source).
+			{Asset: "USDC", AmountAtomic: decimal.RequireFromString("100000000"), Location: liquidity.LocationCircleGateway},
+			// Partial native on Arc — shortfall only is moved.
+			{ChainCAIP2: arc, Asset: arcUSDC, AmountAtomic: decimal.RequireFromString("20000000"), Location: liquidity.LocationNative},
 		},
 	}
+	orch := &liquidity.Orchestration{
+		TargetChainCAIP2: arc,
+		PreferRail:       liquidity.PreferRailCircleGateway,
+	}
+	// allow_circle_gateway defaults true when nil
+	fee := &liquidity.FeeConfig{
+		Bps:       25, // 0.25%
+		Recipient: feeTo,
+		SettleVia: liquidity.SettleViaX402,
+	}
 
-	plan, err := liquidity.PlanLiquidity(req, inv, nil)
+	plan, err := liquidity.PlanOrchestration(req, inv, orch, fee, nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "plan error: %v\n", err)
 		os.Exit(1)
@@ -49,6 +62,10 @@ func main() {
 	_ = enc.Encode(wire)
 
 	fmt.Fprintf(os.Stderr, "\n# action=%s dry_run=%v executed=%v\n", plan.Action, plan.DryRun, plan.Executed)
-	fmt.Fprintf(os.Stderr, "# shortfall on Base was 22 USDC → planned deposit from Arbitrum via circle_gateway\n")
-	fmt.Fprintf(os.Stderr, "# recipients are always agent_self (%s), never merchant pay_to\n", agent)
+	fmt.Fprintf(os.Stderr, "# target=Arc Testnet (%s) source=circle_gateway shortfall=22 USDC → agent_self\n", arc)
+	fmt.Fprintf(os.Stderr, "# recipients on fund rails are always agent_self (%s), never merchant pay_to\n", agent)
+	if plan.Fee != nil {
+		fmt.Fprintf(os.Stderr, "# kaimo fee %s bps amount_atomic=%s settle_via=%s → %s\n",
+			fmt.Sprint(plan.Fee.Bps), plan.Fee.AmountAtomic.String(), plan.Fee.SettleVia, plan.Fee.Recipient)
+	}
 }

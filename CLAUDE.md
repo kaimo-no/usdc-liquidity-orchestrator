@@ -8,19 +8,19 @@ Guidance for agents working in **usdc-liquidity-orchestrator** (kaimo-no).
 
 **Non-custodial multi-chain USDC rebalancing for agentic commerce.**
 
-Agents hold fragmented USDC across chains; merchants accept USDC on one chain (e.g. Base via native x402). This component **plans** how to fund the **agent’s own wallet** on the merchant’s chain using:
+Agents hold fragmented USDC across chains; merchants accept USDC on one chain (e.g. Arc Testnet or Base via x402). This component is a **general orchestrator**: agents declare **target** + optional **source** allowlist, then it **plans** how to fund the **agent’s own wallet** on the target using:
 
 1. **Circle Gateway** (preferred) — unified balance, deposit/withdraw  
 2. **CCTP Fast Transfer** (fallback) — burn source / mint dest  
 
-It does **not** take product custody and does **not** route funds through a platform MoR wallet.
+It does **not** take product custody and does **not** route funds through a platform MoR wallet. Optional kaimo fee is plan metadata / post-prepare x402 settle only.
 
 | Layer | Status |
 |---|---|
 | L0 wire types (`pkg/types`) | shipped |
 | L1 pure planner (`pkg/liquidity`) | shipped — shortfall-only moves |
 | L2 execute | fail-closed `UnconfiguredExecutor` (no live Circle SDK yet) |
-| HTTP microservice (`cmd/server`) | `POST /v1/plan`, `GET /healthz` |
+| HTTP microservice (`cmd/server`) | `POST /v1/plan`, `GET /v1/chains`, `GET /healthz` |
 | CLI demo (`cmd/demo`) | worked example for judges |
 
 Related private monorepo: `kaimo-no/kaimo-go` (World B commerce router can call this as a library or HTTP service). **This repo has zero import of kaimo-go.**
@@ -47,6 +47,9 @@ Related private monorepo: `kaimo-no/kaimo-go` (World B commerce router can call 
 - **`UnconfiguredExecutor` never succeeds.** `execute=true` returns `liquidity_rail_unavailable` (or `insufficient_liquidity` for shortfall actions).
 - **Rail naming:** `circle_gateway_*` / `cctp_fast` — never bare `gateway` (avoids MoR / HTTP-gateway confusion). Bare inventory location `"gateway"` is ignored as invalid.
 - **Shortfall-only rebalance:** plan amount = `required − dest_native`, not full required when dest already holds partial funds.
+- **Orchestration options:** optional `target_chain_caip2` (must match required), `source_chain_caip2s` allowlist, `allow_circle_gateway`, `prefer_rail`.
+- **Fee:** optional `fee_bps` + `fee_recipient` — plan.fee envelope only (never a step); settle via x402 after prepare; not a fund-rail destination.
+- **`agent_address == pay_to` refused** on fund-moving plans (anti–confused-deputy).
 - **No durable buyer ledger** in this repo. Inventory is request-scoped; do not log balances or wallet private keys.
 - **Canonical layout:** library packages under `pkg/`; thin `cmd/*/main.go`; black-box tests under `tests/` as `package <foo>_test`.
 - **Sources / adapters are small interfaces** (`Executor`). No type embedding for behaviour reuse.

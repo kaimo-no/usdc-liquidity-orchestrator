@@ -1,0 +1,29 @@
+{
+  "required": {
+    "protocol": "x402",
+    "chain_caip2": "eip155:8453",
+    "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+    "amount_atomic": "42000000",
+    "pay_to": "0xMerchantOnBase0000000000000000000001",
+    "pay_to_role": "merchant",
+    "source": "probe"
+  },
+  "inventory": {
+    "agent_address": "0xAgentSelf000000000000000000000000000001",
+    "balances": [
+      {
+        "chain_caip2": "eip155:42161",
+        "asset": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+        "amount_atomic": "30000000",
+        "location": "native"
+      },
+      {
+        "chain_caip2": "eip155:8453",
+        "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "amount_atomic": "20000000",
+        "location": "native"
+      }
+    ]
+  },
+  "execute": false
+}

@@ -47,6 +47,12 @@ func (g *Guard) CheckPlan(p Plan) error {
 		if err := checkFundStep(s, p.Required, agent, g); err != nil {
 			return err
 		}
+		if err := checkFeeStep(s, p.Required); err != nil {
+			return err
+		}
+	}
+	if err := checkPlanFee(p); err != nil {
+		return err
 	}
 	if g != nil && g.MaxAmountAtomic.IsPositive() && p.Required.AmountAtomic.GreaterThan(g.MaxAmountAtomic) {
 		return liqerr.New(liqerr.CodeInsufficientLiquidity,
@@ -103,8 +109,43 @@ func isFundMovingKind(kind string) bool {
 	case StepKindCircleGatewayWithdraw, StepKindCircleGatewayDeposit, StepKindCCTPBurn, StepKindCCTPMint:
 		return true
 	default:
+		// orchestrator_fee is post-prepare settle metadata, not a fund rail.
 		return false
 	}
+}
+
+func checkFeeStep(s PlanStep, req Required) error {
+	if s.Kind != StepKindOrchestratorFee {
+		return nil
+	}
+	if s.RecipientRole != RecipientRoleOrchestrator {
+		return liqerr.New(liqerr.CodeInvalidQuery,
+			"liquidity: orchestrator_fee step must use recipient_role=orchestrator, got %q", s.RecipientRole)
+	}
+	rec := strings.TrimSpace(s.Recipient)
+	if rec == "" {
+		return liqerr.New(liqerr.CodeInvalidQuery, "liquidity: orchestrator_fee step missing recipient")
+	}
+	if payTo := strings.TrimSpace(req.PayTo); payTo != "" && addrEqual(rec, payTo, req.ChainCAIP2) {
+		return liqerr.New(liqerr.CodeInvalidQuery,
+			"liquidity: fee recipient must not equal merchant pay_to")
+	}
+	return nil
+}
+
+func checkPlanFee(p Plan) error {
+	if p.Fee == nil {
+		return nil
+	}
+	rec := strings.TrimSpace(p.Fee.Recipient)
+	if rec == "" {
+		return liqerr.New(liqerr.CodeInvalidQuery, "liquidity: plan fee missing recipient")
+	}
+	if payTo := strings.TrimSpace(p.Required.PayTo); payTo != "" && addrEqual(rec, payTo, p.Required.ChainCAIP2) {
+		return liqerr.New(liqerr.CodeInvalidQuery,
+			"liquidity: fee recipient must not equal merchant pay_to")
+	}
+	return nil
 }
 
 func agentAddrAllowed(allowed []string, addr, chainCAIP2 string) bool {
