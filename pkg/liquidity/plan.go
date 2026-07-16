@@ -127,7 +127,21 @@ type Plan struct {
 	Executed            bool
 	DryRun              bool
 	Fee                 *PlanFee
-	agentAddress        string
+	agentAddress        string // agent_self binding; never bootstrap from steps in CheckPlan
+}
+
+// BindAgent sets the agent_self identity for CheckPlan / execute.
+// Fund-moving plans require a non-empty agent; CheckPlan refuses step-recipient bootstrap.
+func (p *Plan) BindAgent(addr string) {
+	if p == nil {
+		return
+	}
+	p.agentAddress = strings.TrimSpace(addr)
+}
+
+// AgentAddress returns the bound agent_self address (empty if unset).
+func (p Plan) AgentAddress() string {
+	return p.agentAddress
 }
 
 // RequiredFromWire builds Required from merchant-claim wire.
@@ -330,6 +344,10 @@ func validateFeeConfig(fee *FeeConfig) error {
 	if fee.Bps < 0 {
 		return liqerr.New(liqerr.CodeInvalidQuery, "liquidity: fee_bps must be non-negative")
 	}
+	// Cap at 100% (10000 bps) — plan metadata only, but bounds agent-steering risk.
+	if fee.Bps > 10000 {
+		return liqerr.New(liqerr.CodeInvalidQuery, "liquidity: fee_bps must be <= 10000")
+	}
 	if strings.TrimSpace(fee.Recipient) == "" {
 		return liqerr.New(liqerr.CodeInvalidQuery,
 			"liquidity: fee_recipient required when fee_bps > 0")
@@ -530,7 +548,11 @@ func locationSumGateway(req Required, inv Inventory) decimal.Decimal {
 
 func gatewayAssetMatch(bAsset, reqAsset string) bool {
 	bAsset = strings.TrimSpace(bAsset)
-	if bAsset == "" || strings.EqualFold(bAsset, "USDC") {
+	// Empty asset is incomplete inventory — do not treat as USDC.
+	if bAsset == "" {
+		return false
+	}
+	if strings.EqualFold(bAsset, "USDC") {
 		return true
 	}
 	if IsKnownUSDCAsset(bAsset) {
@@ -613,12 +635,24 @@ func sumMatching(req Required, inv Inventory, loc, chain string) decimal.Decimal
 		if !strings.EqualFold(strings.TrimSpace(b.ChainCAIP2), strings.TrimSpace(chain)) {
 			continue
 		}
-		if !assetEqual(b.Asset, req.Asset, req.ChainCAIP2) {
+		// Same-chain USDC equivalence (symbol "USDC" ↔ registry contract), aligned with
+		// gateway/cross-chain matching so shortfall-only is not inflated.
+		if !sameChainUSDCMatch(b.Asset, req.Asset, chain) {
 			continue
 		}
 		sum = sum.Add(b.AmountAtomic)
 	}
 	return sum
+}
+
+// sameChainUSDCMatch treats registry USDC contract and symbol "USDC" as equivalent
+// on a single chain (client-asserted inventory may use either form).
+func sameChainUSDCMatch(rowAsset, reqAsset, chain string) bool {
+	if assetEqual(rowAsset, reqAsset, chain) {
+		return true
+	}
+	// Reuse cross-chain logic with both sides on the same CAIP-2.
+	return crossChainUSDCMatch(rowAsset, chain, reqAsset, chain)
 }
 
 func normalizeLoc(loc string) string {
@@ -686,6 +720,10 @@ func PlanToWire(p Plan) types.Plan {
 			Asset:         p.Fee.Asset,
 		}
 	}
+	amountSrc := p.Required.AmountSource
+	if amountSrc == "" {
+		amountSrc = AmountSourceProbe
+	}
 	return types.Plan{
 		Action:              string(p.Action),
 		Required:            reqWire,
@@ -696,7 +734,7 @@ func PlanToWire(p Plan) types.Plan {
 		InventoryUnverified: p.InventoryUnverified,
 		Executed:            p.Executed,
 		DryRun:              p.DryRun,
-		AmountSource:        p.Required.AmountSource,
+		AmountSource:        amountSrc,
 		Fee:                 feeWire,
 	}
 }

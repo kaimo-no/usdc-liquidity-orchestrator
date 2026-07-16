@@ -34,18 +34,44 @@ func (g *Guard) CheckPrepare(req Required, inv Inventory) error {
 	}
 	if !agentAddrAllowed(g.AllowedAgentAddresses, inv.AgentAddress, req.ChainCAIP2) {
 		return liqerr.New(liqerr.CodeInvalidQuery,
-			"liquidity: agent_address %q is not in AllowedAgentAddresses", inv.AgentAddress)
+			"liquidity: agent_address is not in AllowedAgentAddresses")
 	}
 	return nil
 }
 
 // CheckPlan refuses non-agent_self fund steps and pay_to-as-recipient.
 // Nil receiver is safe (used by bare UnconfiguredExecutor{}).
+//
+// Fail-closed for future live Executors: never bootstrap agent from step recipients;
+// require pay_to when fund-moving; refuse unknown step kinds; cap step amounts.
 func (g *Guard) CheckPlan(p Plan) error {
-	agent := resolvePlanAgent(p)
+	hasFund := false
 	for _, s := range p.Steps {
-		if err := checkFundStep(s, p.Required, agent, g); err != nil {
+		fund, err := classifyStep(s)
+		if err != nil {
 			return err
+		}
+		if fund {
+			hasFund = true
+		}
+	}
+	agent := strings.TrimSpace(p.agentAddress)
+	if hasFund {
+		if strings.TrimSpace(p.Required.PayTo) == "" {
+			return liqerr.New(liqerr.CodeInsufficientLiquidity,
+				"liquidity: empty pay_to — refuse plan")
+		}
+		if agent == "" {
+			return liqerr.New(liqerr.CodeInvalidQuery,
+				"liquidity: agent_address required for fund-moving plan (refuse bootstrap from steps)")
+		}
+	}
+	for _, s := range p.Steps {
+		fund, _ := classifyStep(s)
+		if fund {
+			if err := checkFundStep(s, p.Required, agent, g); err != nil {
+				return err
+			}
 		}
 		if err := checkFeeStep(s, p.Required); err != nil {
 			return err
@@ -54,31 +80,52 @@ func (g *Guard) CheckPlan(p Plan) error {
 	if err := checkPlanFee(p); err != nil {
 		return err
 	}
-	if g != nil && g.MaxAmountAtomic.IsPositive() && p.Required.AmountAtomic.GreaterThan(g.MaxAmountAtomic) {
-		return liqerr.New(liqerr.CodeInsufficientLiquidity,
-			"liquidity: plan amount %s exceeds MaxAmountAtomic %s",
-			p.Required.AmountAtomic.String(), g.MaxAmountAtomic.String())
+	if g != nil && g.MaxAmountAtomic.IsPositive() {
+		if p.Required.AmountAtomic.GreaterThan(g.MaxAmountAtomic) {
+			return liqerr.New(liqerr.CodeInsufficientLiquidity,
+				"liquidity: plan amount %s exceeds MaxAmountAtomic %s",
+				p.Required.AmountAtomic.String(), g.MaxAmountAtomic.String())
+		}
+		for _, s := range p.Steps {
+			fund, _ := classifyStep(s)
+			if !fund {
+				continue
+			}
+			if !s.AmountAtomic.IsPositive() {
+				return liqerr.New(liqerr.CodeInvalidQuery,
+					"liquidity: fund-moving step amount must be positive")
+			}
+			if s.AmountAtomic.GreaterThan(g.MaxAmountAtomic) {
+				return liqerr.New(liqerr.CodeInsufficientLiquidity,
+					"liquidity: step amount %s exceeds MaxAmountAtomic %s",
+					s.AmountAtomic.String(), g.MaxAmountAtomic.String())
+			}
+		}
 	}
 	return nil
 }
 
-func resolvePlanAgent(p Plan) string {
-	agent := strings.TrimSpace(p.agentAddress)
-	if agent != "" {
-		return agent
-	}
-	for _, s := range p.Steps {
-		if r := strings.TrimSpace(s.Recipient); r != "" {
-			return r
+// classifyStep returns whether the step is fund-moving, or an error for unknown kinds.
+func classifyStep(s PlanStep) (fundMoving bool, err error) {
+	k := strings.ToLower(strings.TrimSpace(s.Kind))
+	switch k {
+	case StepKindCircleGatewayWithdraw, StepKindCircleGatewayDeposit, StepKindCCTPBurn, StepKindCCTPMint:
+		return true, nil
+	case StepKindNote, StepKindOrchestratorFee:
+		return false, nil
+	case "":
+		if strings.TrimSpace(s.Recipient) != "" {
+			return false, liqerr.New(liqerr.CodeInvalidQuery,
+				"liquidity: step missing kind but has recipient — refuse")
 		}
+		return false, nil
+	default:
+		return false, liqerr.New(liqerr.CodeInvalidQuery,
+			"liquidity: unknown step kind %q — refuse (allowlist only)", s.Kind)
 	}
-	return ""
 }
 
 func checkFundStep(s PlanStep, req Required, agent string, g *Guard) error {
-	if !isFundMovingKind(s.Kind) {
-		return nil
-	}
 	if s.RecipientRole != RecipientRoleAgentSelf {
 		return liqerr.New(liqerr.CodeInvalidQuery,
 			"liquidity: fund-moving step kind %q must use recipient_role=agent_self, got %q",
@@ -89,33 +136,30 @@ func checkFundStep(s PlanStep, req Required, agent string, g *Guard) error {
 		return liqerr.New(liqerr.CodeInvalidQuery,
 			"liquidity: fund-moving step missing recipient (agent_self required)")
 	}
+	// Always refuse merchant as fund dest (pay_to required when hasFund).
 	if payTo := strings.TrimSpace(req.PayTo); payTo != "" && addrEqual(rec, payTo, req.ChainCAIP2) {
 		return liqerr.New(liqerr.CodeInvalidQuery,
 			"liquidity: refuse transfer to merchant pay_to — prepare funds agent_self only")
 	}
-	if agent != "" && !addrEqual(rec, agent, req.ChainCAIP2) {
+	// agent is required when fund-moving (enforced by CheckPlan).
+	if agent == "" || !addrEqual(rec, agent, req.ChainCAIP2) {
 		return liqerr.New(liqerr.CodeInvalidQuery,
-			"liquidity: step recipient %q must equal agent_address", rec)
+			"liquidity: step recipient must equal agent_address")
 	}
 	if g != nil && len(g.AllowedAgentAddresses) > 0 && !agentAddrAllowed(g.AllowedAgentAddresses, rec, req.ChainCAIP2) {
 		return liqerr.New(liqerr.CodeInvalidQuery,
-			"liquidity: step recipient %q not in AllowedAgentAddresses", rec)
+			"liquidity: step recipient not in AllowedAgentAddresses")
 	}
 	return nil
 }
 
 func isFundMovingKind(kind string) bool {
-	switch kind {
-	case StepKindCircleGatewayWithdraw, StepKindCircleGatewayDeposit, StepKindCCTPBurn, StepKindCCTPMint:
-		return true
-	default:
-		// orchestrator_fee is post-prepare settle metadata, not a fund rail.
-		return false
-	}
+	fund, err := classifyStep(PlanStep{Kind: kind})
+	return err == nil && fund
 }
 
 func checkFeeStep(s PlanStep, req Required) error {
-	if s.Kind != StepKindOrchestratorFee {
+	if strings.ToLower(strings.TrimSpace(s.Kind)) != StepKindOrchestratorFee {
 		return nil
 	}
 	if s.RecipientRole != RecipientRoleOrchestrator {

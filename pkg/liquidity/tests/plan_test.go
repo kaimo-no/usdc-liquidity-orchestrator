@@ -182,8 +182,10 @@ func TestGuard_RefusePayToAsRecipient(t *testing.T) {
 		Steps: []liquidity.PlanStep{{
 			Kind: liquidity.StepKindCircleGatewayWithdraw, Recipient: merchantPayTo,
 			RecipientRole: liquidity.RecipientRoleAgentSelf,
+			AmountAtomic:  decimal.RequireFromString("1"),
 		}},
 	}
+	p.BindAgent(agentAddr)
 	err := g.CheckPlan(p)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "pay_to")
@@ -515,4 +517,164 @@ func TestListChains_IncludesArc(t *testing.T) {
 		}
 	}
 	assert.True(t, found)
+}
+
+func TestPlan_DestNativeUSDCSymbol_ShortfallOnly(t *testing.T) {
+	// Dest inventory uses symbol "USDC"; required uses registry contract.
+	// Must count toward shortfall (same-chain USDC match), not over-move 42.
+	req := liquidity.Required{
+		Protocol: "x402", ChainCAIP2: arcCAIP2, Asset: arcUSDC,
+		PayTo: merchantPayTo, AmountAtomic: decimal.RequireFromString("42000000"),
+		AmountSource: liquidity.AmountSourceProbe,
+	}
+	inv := liquidity.Inventory{
+		AgentAddress: agentAddr,
+		Balances: []liquidity.Balance{
+			{ChainCAIP2: arcCAIP2, Asset: "USDC", AmountAtomic: decimal.RequireFromString("20000000"), Location: liquidity.LocationNative},
+			{Asset: "USDC", AmountAtomic: decimal.RequireFromString("100000000"), Location: liquidity.LocationCircleGateway},
+		},
+	}
+	p, err := liquidity.PlanLiquidity(req, inv, nil)
+	require.NoError(t, err)
+	assert.Equal(t, liquidity.ActionCircleGatewayWithdraw, p.Action)
+	require.Len(t, p.Steps, 1)
+	assert.True(t, p.Steps[0].AmountAtomic.Equal(decimal.RequireFromString("22000000")),
+		"shortfall must be 22e6, got %s", p.Steps[0].AmountAtomic.String())
+}
+
+func TestPlan_DestNativeUSDCSymbol_NoopWhenCovers(t *testing.T) {
+	req := liquidity.Required{
+		Protocol: "x402", ChainCAIP2: arcCAIP2, Asset: arcUSDC,
+		PayTo: merchantPayTo, AmountAtomic: decimal.RequireFromString("1000000"),
+		AmountSource: liquidity.AmountSourceProbe,
+	}
+	inv := liquidity.Inventory{
+		AgentAddress: agentAddr,
+		Balances: []liquidity.Balance{{
+			ChainCAIP2: arcCAIP2, Asset: "USDC",
+			AmountAtomic: decimal.RequireFromString("2000000"), Location: liquidity.LocationNative,
+		}},
+	}
+	p, err := liquidity.PlanLiquidity(req, inv, nil)
+	require.NoError(t, err)
+	assert.Equal(t, liquidity.ActionNoop, p.Action)
+}
+
+func TestPlan_EmptyGatewayAsset_NotMatched(t *testing.T) {
+	req := baseRequired()
+	inv := liquidity.Inventory{
+		AgentAddress: agentAddr,
+		Balances: []liquidity.Balance{{
+			Asset: "", AmountAtomic: decimal.RequireFromString("9000000"), Location: liquidity.LocationCircleGateway,
+		}},
+	}
+	p, err := liquidity.PlanLiquidity(req, inv, nil)
+	require.NoError(t, err)
+	assert.Equal(t, liquidity.ActionInsufficient, p.Action)
+}
+
+func TestGuard_EmptyAgent_NoBootstrapFromSteps(t *testing.T) {
+	// MoR recipient with role=agent_self must not pass when agentAddress unset.
+	g := &liquidity.Guard{}
+	p := liquidity.Plan{
+		Action: liquidity.ActionCircleGatewayWithdraw,
+		Required: liquidity.Required{
+			PayTo: merchantPayTo, ChainCAIP2: baseCAIP2, Asset: baseUSDC,
+			AmountAtomic: decimal.RequireFromString("1"),
+		},
+		Steps: []liquidity.PlanStep{{
+			Kind: liquidity.StepKindCircleGatewayWithdraw, Recipient: platformMoR,
+			RecipientRole: liquidity.RecipientRoleAgentSelf,
+			AmountAtomic:  decimal.RequireFromString("1"),
+		}},
+	}
+	// deliberately no BindAgent
+	err := g.CheckPlan(p)
+	require.Error(t, err)
+	assert.Equal(t, liqerr.CodeInvalidQuery, liqerr.CodeOf(err))
+	assert.Contains(t, err.Error(), "agent_address required")
+}
+
+func TestGuard_EmptyPayTo_FailClosedWithFundSteps(t *testing.T) {
+	g := &liquidity.Guard{}
+	p := liquidity.Plan{
+		Action: liquidity.ActionCircleGatewayWithdraw,
+		Required: liquidity.Required{
+			PayTo: "", ChainCAIP2: baseCAIP2, Asset: baseUSDC,
+			AmountAtomic: decimal.RequireFromString("1"),
+		},
+		Steps: []liquidity.PlanStep{{
+			Kind: liquidity.StepKindCircleGatewayWithdraw, Recipient: agentAddr,
+			RecipientRole: liquidity.RecipientRoleAgentSelf,
+			AmountAtomic:  decimal.RequireFromString("1"),
+		}},
+	}
+	p.BindAgent(agentAddr)
+	err := g.CheckPlan(p)
+	require.Error(t, err)
+	assert.Equal(t, liqerr.CodeInsufficientLiquidity, liqerr.CodeOf(err))
+	assert.Contains(t, err.Error(), "pay_to")
+}
+
+func TestGuard_UnknownStepKind_Refused(t *testing.T) {
+	g := &liquidity.Guard{}
+	p := liquidity.Plan{
+		Action: liquidity.ActionCircleGatewayWithdraw,
+		Required: liquidity.Required{
+			PayTo: merchantPayTo, ChainCAIP2: baseCAIP2, Asset: baseUSDC,
+			AmountAtomic: decimal.RequireFromString("1"),
+		},
+		Steps: []liquidity.PlanStep{{
+			Kind: "transfer", Recipient: merchantPayTo,
+			RecipientRole: liquidity.RecipientRoleAgentSelf,
+			AmountAtomic:  decimal.RequireFromString("1"),
+		}},
+	}
+	p.BindAgent(agentAddr)
+	err := g.CheckPlan(p)
+	require.Error(t, err)
+	assert.Equal(t, liqerr.CodeInvalidQuery, liqerr.CodeOf(err))
+	assert.Contains(t, err.Error(), "unknown step kind")
+}
+
+func TestGuard_MaxAmountAtomic_CapsStepAmounts(t *testing.T) {
+	g := &liquidity.Guard{MaxAmountAtomic: decimal.RequireFromString("100")}
+	p := liquidity.Plan{
+		Action: liquidity.ActionCircleGatewayWithdraw,
+		Required: liquidity.Required{
+			PayTo: merchantPayTo, ChainCAIP2: baseCAIP2, Asset: baseUSDC,
+			AmountAtomic: decimal.RequireFromString("50"), // under max
+		},
+		Steps: []liquidity.PlanStep{{
+			Kind: liquidity.StepKindCircleGatewayWithdraw, Recipient: agentAddr,
+			RecipientRole: liquidity.RecipientRoleAgentSelf,
+			AmountAtomic:  decimal.RequireFromString("999"), // over max
+		}},
+	}
+	p.BindAgent(agentAddr)
+	err := g.CheckPlan(p)
+	require.Error(t, err)
+	assert.Equal(t, liqerr.CodeInsufficientLiquidity, liqerr.CodeOf(err))
+	assert.Contains(t, err.Error(), "step amount")
+}
+
+func TestGuard_MoRRecipient_RefusedWithBoundAgent(t *testing.T) {
+	g := &liquidity.Guard{}
+	p := liquidity.Plan{
+		Action: liquidity.ActionCircleGatewayWithdraw,
+		Required: liquidity.Required{
+			PayTo: merchantPayTo, ChainCAIP2: baseCAIP2, Asset: baseUSDC,
+			AmountAtomic: decimal.RequireFromString("1"),
+		},
+		Steps: []liquidity.PlanStep{{
+			Kind: liquidity.StepKindCircleGatewayWithdraw, Recipient: platformMoR,
+			RecipientRole: liquidity.RecipientRoleAgentSelf,
+			AmountAtomic:  decimal.RequireFromString("1"),
+		}},
+	}
+	p.BindAgent(agentAddr)
+	err := g.CheckPlan(p)
+	require.Error(t, err)
+	assert.Equal(t, liqerr.CodeInvalidQuery, liqerr.CodeOf(err))
+	assert.Contains(t, err.Error(), "agent_address")
 }
