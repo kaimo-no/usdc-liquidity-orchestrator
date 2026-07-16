@@ -26,6 +26,7 @@ func TestUnconfiguredExecutor_AlwaysErrors(t *testing.T) {
 			AmountAtomic:  decimal.RequireFromString("1000000"),
 		}},
 	}
+	p.BindAgent(agentAddr)
 	_, err := ex.Execute(context.Background(), p)
 	require.Error(t, err)
 	assert.Equal(t, liqerr.CodeLiquidityRailUnavailable, liqerr.CodeOf(err))
@@ -42,8 +43,10 @@ func TestUnconfiguredExecutor_RejectsPayToAsRecipient(t *testing.T) {
 		Steps: []liquidity.PlanStep{{
 			Kind: liquidity.StepKindCircleGatewayWithdraw, Recipient: merchantPayTo,
 			RecipientRole: liquidity.RecipientRoleAgentSelf,
+			AmountAtomic:  decimal.RequireFromString("1"),
 		}},
 	}
+	p.BindAgent(agentAddr)
 	_, err := ex.Execute(context.Background(), p)
 	require.Error(t, err)
 	assert.Equal(t, liqerr.CodeInvalidQuery, liqerr.CodeOf(err))

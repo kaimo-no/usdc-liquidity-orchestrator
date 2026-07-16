@@ -2,7 +2,7 @@
 
 **[kaimo-no](https://github.com/kaimo-no)** · public component for agentic commerce
 
-**Non-custodial multi-chain USDC rebalancing.** Agents hold fragmented USDC; merchants accept USDC on one chain. This library + microservice **plans** how to fund the agent’s own wallet on the merchant chain via **Circle Gateway** (preferred) and **CCTP Fast Transfer** (fallback) — without product custody and without platform MoR.
+**Non-custodial multi-chain USDC rebalancing.** Agents set a **target chain** and optional **source** allowlist; this library + microservice **plans** how to fund the agent’s own wallet on the target via **Circle Gateway** (preferred unified balance) and **CCTP Fast Transfer** (fallback) — without product custody and without platform MoR. Arc Testnet is first-class for Circle/Arc hackathon corridors.
 
 | | |
 |---|---|
@@ -49,7 +49,8 @@ wire := liquidity.PlanToWire(plan)
 
 ### HTTP
 
-`POST /v1/plan` — see [`examples/plan.json`](./examples/plan.json)  
+`POST /v1/plan` — see [`examples/plan.json`](./examples/plan.json) (Arc Testnet + Gateway)  
+`GET /v1/chains` — registered corridors (CAIP-2, USDC, Gateway domain)  
 `GET /healthz`
 
 ---
@@ -64,7 +65,9 @@ cmd/server     thin HTTP microservice
 cmd/demo       worked example
 ```
 
-Plan preference: `noop` → `circle_gateway_withdraw` → `circle_gateway_deposit_withdraw` → `cctp_fast` → `insufficient` / `corridor_unsupported`.
+Plan preference: `noop` → `circle_gateway_withdraw` → `circle_gateway_deposit_withdraw` → `cctp_fast` → `insufficient` / `corridor_unsupported` (override with `orchestration.prefer_rail`).
+
+Optional `fee_bps` + `fee_recipient` attach a kaimo orchestration fee settled **after** prepare (e.g. x402) — never a prepare fund-move destination.
 
 ### Hard invariants
 
@@ -75,7 +78,9 @@ Plan preference: `noop` → `circle_gateway_withdraw` → `circle_gateway_deposi
 5. Execute stub always errors  
 6. Atomic `decimal.Decimal` (no float64, no GBP Round(2))  
 7. **Shortfall-only** rebalance  
-8. Rails named `circle_gateway_*` / `cctp_fast` (never bare `gateway`)
+8. Rails named `circle_gateway_*` / `cctp_fast` (never bare `gateway`)  
+9. `agent_address == pay_to` is **refused** on fund-moving plans (anti–confused-deputy: prepare must not look like a merchant payout)  
+10. Optional fee is **plan.fee envelope only** — never an `orchestrator_fee` step (naive agents must not auto-execute fee as a transfer)
 
 ---
 

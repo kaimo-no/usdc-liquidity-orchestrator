@@ -6,6 +6,17 @@ import (
 	liqerr "github.com/kaimo-no/usdc-liquidity-orchestrator/pkg/errors"
 )
 
+// Non-secret Circle Gateway testnet addresses (for a future live Executor adapter).
+// Do not treat these as credentials; no API keys belong in this package.
+const (
+	// GatewayAPITestnetBase is the Circle Gateway testnet API base URL.
+	GatewayAPITestnetBase = "https://gateway-api-testnet.circle.com"
+	// GatewayWalletTestnet is the Gateway Wallet contract on EVM testnets.
+	GatewayWalletTestnet = "0x0077777d7EBA4688BDeF3E311b846F25870A19B9"
+	// GatewayMinterTestnet is the Gateway Minter contract on EVM testnets.
+	GatewayMinterTestnet = "0x0022222ABE238Cc2C7Bb1f21003F0a260052475B"
+)
+
 // Receipt is a future execute receipt (unused while unconfigured).
 type Receipt struct {
 	TxHashes []string
@@ -13,6 +24,7 @@ type Receipt struct {
 }
 
 // Executor runs a plan (circle_gateway / cctp). This cut ships the fail-closed stub.
+// Future adapters map PlanStep kinds to Gateway deposit / burn-intent / mint.
 type Executor interface {
 	Execute(ctx context.Context, p Plan) (Receipt, error)
 }

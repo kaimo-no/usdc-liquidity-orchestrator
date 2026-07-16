@@ -3,3 +3,5 @@ bin/
 *.exe
 coverage.out
 .DS_Store
+.lavish/
+kaimo-pr.diff

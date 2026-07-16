@@ -31,18 +31,25 @@ const (
 )
 
 const (
-	LocationNative         = "native"
-	LocationCircleGateway  = "circle_gateway"
-	RecipientRoleAgentSelf = "agent_self"
-	RecipientRoleMerchant  = "merchant"
-	AmountSourceProbe      = "probe"
-	AmountSourceOverride   = "override"
+	LocationNative            = "native"
+	LocationCircleGateway     = "circle_gateway"
+	RecipientRoleAgentSelf    = "agent_self"
+	RecipientRoleMerchant     = "merchant"
+	RecipientRoleOrchestrator = "orchestrator"
+	AmountSourceProbe         = "probe"
+	AmountSourceOverride      = "override"
 
 	StepKindCircleGatewayWithdraw = "circle_gateway_withdraw"
 	StepKindCircleGatewayDeposit  = "circle_gateway_deposit"
 	StepKindCCTPBurn              = "cctp_burn"
 	StepKindCCTPMint              = "cctp_mint"
 	StepKindNote                  = "note"
+	StepKindOrchestratorFee       = "orchestrator_fee"
+
+	PreferRailAuto          = "auto"
+	PreferRailCircleGateway = "circle_gateway"
+	PreferRailCCTPFast      = "cctp_fast"
+	SettleViaX402           = "x402"
 )
 
 // Required is the dest-chain USDC need (+ optional amount override rules).
@@ -69,7 +76,35 @@ type Inventory struct {
 	Balances     []Balance
 }
 
-// PlanStep is one planned fund movement (agent_self recipients only).
+// Orchestration is optional agent setup for target + source allowlist + rail preference.
+type Orchestration struct {
+	TargetChainCAIP2   string
+	SourceChainCAIP2s  []string
+	AllowCircleGateway *bool // nil = true
+	PreferRail         string
+}
+
+// FeeConfig is optional kaimo orchestration fee (post-prepare settle; not a fund rail).
+type FeeConfig struct {
+	Bps        int64
+	Recipient  string
+	SettleVia  string
+	ChainCAIP2 string
+	Asset      string
+}
+
+// PlanFee is fee metadata attached to a fund-moving plan.
+type PlanFee struct {
+	Bps           int64
+	AmountAtomic  decimal.Decimal
+	Recipient     string
+	RecipientRole string
+	SettleVia     string
+	ChainCAIP2    string
+	Asset         string
+}
+
+// PlanStep is one planned fund movement (agent_self recipients only for fund rails).
 type PlanStep struct {
 	Kind           string
 	FromChainCAIP2 string
@@ -91,7 +126,22 @@ type Plan struct {
 	InventoryUnverified bool
 	Executed            bool
 	DryRun              bool
-	agentAddress        string
+	Fee                 *PlanFee
+	agentAddress        string // agent_self binding; never bootstrap from steps in CheckPlan
+}
+
+// BindAgent sets the agent_self identity for CheckPlan / execute.
+// Fund-moving plans require a non-empty agent; CheckPlan refuses step-recipient bootstrap.
+func (p *Plan) BindAgent(addr string) {
+	if p == nil {
+		return
+	}
+	p.agentAddress = strings.TrimSpace(addr)
+}
+
+// AgentAddress returns the bound agent_self address (empty if unset).
+func (p Plan) AgentAddress() string {
+	return p.agentAddress
 }
 
 // RequiredFromWire builds Required from merchant-claim wire.
@@ -180,7 +230,18 @@ func parseAtomic(s string) (decimal.Decimal, error) {
 // PlanLiquidity returns a pure dry plan. Never moves funds.
 // Fund steps always target Inventory.AgentAddress with recipient_role=agent_self.
 func PlanLiquidity(req Required, inv Inventory, g *Guard) (Plan, error) {
+	return PlanOrchestration(req, inv, nil, nil, g)
+}
+
+// PlanOrchestration plans with optional source/target setup and fee config.
+func PlanOrchestration(req Required, inv Inventory, o *Orchestration, fee *FeeConfig, g *Guard) (Plan, error) {
 	if err := validateRequired(req); err != nil {
+		return Plan{}, err
+	}
+	if err := validateOrchestration(req, o); err != nil {
+		return Plan{}, err
+	}
+	if err := validateFeeConfig(fee); err != nil {
 		return Plan{}, err
 	}
 	if err := g.CheckPrepare(req, inv); err != nil {
@@ -213,7 +274,16 @@ func PlanLiquidity(req Required, inv Inventory, g *Guard) (Plan, error) {
 	}
 
 	gwOK, cctpOK := corridorEligible(req.ChainCAIP2)
-	if p, ok, err := tryBridgePlans(req, inv, agent, shortfall, gwOK, cctpOK, g, base); ok || err != nil {
+	if o != nil && !o.gatewayAllowed() {
+		gwOK = false
+	}
+	prefer := PreferRailAuto
+	if o != nil && strings.TrimSpace(o.PreferRail) != "" {
+		prefer = strings.ToLower(strings.TrimSpace(o.PreferRail))
+	}
+	sources := sourceAllowlist(o)
+
+	if p, ok, err := tryBridgePlans(req, inv, agent, shortfall, gwOK, cctpOK, prefer, sources, fee, g, base); ok || err != nil {
 		return p, err
 	}
 	if !gwOK && !cctpOK {
@@ -224,6 +294,65 @@ func PlanLiquidity(req Required, inv Inventory, g *Guard) (Plan, error) {
 	base.Action = ActionInsufficient
 	base.Reason = "insufficient_liquidity: no dest native, circle_gateway, or cross-chain source covers shortfall"
 	return base, nil
+}
+
+func (o *Orchestration) gatewayAllowed() bool {
+	if o == nil || o.AllowCircleGateway == nil {
+		return true
+	}
+	return *o.AllowCircleGateway
+}
+
+func sourceAllowlist(o *Orchestration) []string {
+	if o == nil || len(o.SourceChainCAIP2s) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(o.SourceChainCAIP2s))
+	for _, s := range o.SourceChainCAIP2s {
+		if t := strings.TrimSpace(s); t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+func validateOrchestration(req Required, o *Orchestration) error {
+	if o == nil {
+		return nil
+	}
+	if t := strings.TrimSpace(o.TargetChainCAIP2); t != "" {
+		if !strings.EqualFold(t, req.ChainCAIP2) {
+			return liqerr.New(liqerr.CodeInvalidQuery,
+				"liquidity: orchestration.target_chain_caip2 %q must equal required.chain_caip2 %q",
+				t, req.ChainCAIP2)
+		}
+	}
+	prefer := strings.ToLower(strings.TrimSpace(o.PreferRail))
+	switch prefer {
+	case "", PreferRailAuto, PreferRailCircleGateway, PreferRailCCTPFast:
+	default:
+		return liqerr.New(liqerr.CodeInvalidQuery,
+			"liquidity: prefer_rail %q invalid (auto|circle_gateway|cctp_fast)", o.PreferRail)
+	}
+	return nil
+}
+
+func validateFeeConfig(fee *FeeConfig) error {
+	if fee == nil || fee.Bps == 0 {
+		return nil
+	}
+	if fee.Bps < 0 {
+		return liqerr.New(liqerr.CodeInvalidQuery, "liquidity: fee_bps must be non-negative")
+	}
+	// Cap at 100% (10000 bps) — plan metadata only, but bounds agent-steering risk.
+	if fee.Bps > 10000 {
+		return liqerr.New(liqerr.CodeInvalidQuery, "liquidity: fee_bps must be <= 10000")
+	}
+	if strings.TrimSpace(fee.Recipient) == "" {
+		return liqerr.New(liqerr.CodeInvalidQuery,
+			"liquidity: fee_recipient required when fee_bps > 0")
+	}
+	return nil
 }
 
 func validateRequired(req Required) error {
@@ -260,72 +389,156 @@ func unsupportedOrEarly(req Required, base Plan) (Plan, bool) {
 		base.Reason = "corridor_unsupported for dest chain (EVM-first; Solana/unknown not planned this cut)"
 		return base, true
 	}
+	if chainIsEVM(req.ChainCAIP2) && !gwOK && !cctpOK {
+		// Unknown EVM dest (not in registry).
+		base.Action = ActionCorridorUnsupported
+		base.Reason = "corridor_unsupported for dest chain (not in registry)"
+		return base, true
+	}
 	return base, false
 }
 
-func tryBridgePlans(req Required, inv Inventory, agent string, shortfall decimal.Decimal, gwOK, cctpOK bool, g *Guard, base Plan) (Plan, bool, error) {
-	if gwOK && locationSum(req, inv, LocationCircleGateway).GreaterThanOrEqual(shortfall) {
-		base.Action = ActionCircleGatewayWithdraw
-		base.RecipientRole = RecipientRoleAgentSelf
-		base.Reason = "circle_gateway balance covers shortfall; withdraw to agent_self on dest"
-		base.Steps = []PlanStep{{
-			Kind: StepKindCircleGatewayWithdraw, ToChainCAIP2: req.ChainCAIP2, Asset: req.Asset,
-			AmountAtomic: shortfall, Recipient: agent, RecipientRole: RecipientRoleAgentSelf,
-		}}
-		p, err := finalizePlan(base, g)
-		return p, true, err
-	}
-	if gwOK {
-		if src, ok := findOtherNativeSource(req, inv, shortfall); ok {
+func tryBridgePlans(
+	req Required, inv Inventory, agent string, shortfall decimal.Decimal,
+	gwOK, cctpOK bool, prefer string, sources []string, fee *FeeConfig, g *Guard, base Plan,
+) (Plan, bool, error) {
+	tryGW := func() (Plan, bool, error) {
+		if !gwOK {
+			return base, false, nil
+		}
+		if locationSumGateway(req, inv).GreaterThanOrEqual(shortfall) {
+			base.Action = ActionCircleGatewayWithdraw
+			base.RecipientRole = RecipientRoleAgentSelf
+			base.Reason = "circle_gateway balance covers shortfall; withdraw to agent_self on dest"
+			base.Steps = []PlanStep{{
+				Kind: StepKindCircleGatewayWithdraw, ToChainCAIP2: req.ChainCAIP2, Asset: req.Asset,
+				AmountAtomic: shortfall, Recipient: agent, RecipientRole: RecipientRoleAgentSelf,
+			}}
+			return finalizeFundPlan(base, shortfall, fee, g)
+		}
+		if src, ok := findOtherNativeSource(req, inv, shortfall, sources); ok {
+			srcAsset := stepAssetForChain(src.Asset, src.ChainCAIP2, req.Asset)
 			base.Action = ActionCircleGatewayDepositWithdraw
 			base.RecipientRole = RecipientRoleAgentSelf
 			base.Reason = "deposit source-chain native into circle_gateway then withdraw shortfall to dest agent_self"
 			base.Steps = []PlanStep{
-				{Kind: StepKindCircleGatewayDeposit, FromChainCAIP2: src.ChainCAIP2, Asset: req.Asset,
+				{Kind: StepKindCircleGatewayDeposit, FromChainCAIP2: src.ChainCAIP2, Asset: srcAsset,
 					AmountAtomic: shortfall, Recipient: agent, RecipientRole: RecipientRoleAgentSelf},
 				{Kind: StepKindCircleGatewayWithdraw, ToChainCAIP2: req.ChainCAIP2, Asset: req.Asset,
 					AmountAtomic: shortfall, Recipient: agent, RecipientRole: RecipientRoleAgentSelf},
 			}
-			p, err := finalizePlan(base, g)
-			return p, true, err
+			return finalizeFundPlan(base, shortfall, fee, g)
 		}
+		return base, false, nil
 	}
-	if cctpOK {
-		if src, ok := findOtherNativeSource(req, inv, shortfall); ok {
+
+	tryCCTP := func() (Plan, bool, error) {
+		if !cctpOK {
+			return base, false, nil
+		}
+		if src, ok := findOtherNativeSource(req, inv, shortfall, sources); ok {
+			srcAsset := stepAssetForChain(src.Asset, src.ChainCAIP2, req.Asset)
 			base.Action = ActionCCTPFast
 			base.RecipientRole = RecipientRoleAgentSelf
 			base.Reason = "cctp_fast burn shortfall on source, mint to agent_self on dest"
 			base.Steps = []PlanStep{
-				{Kind: StepKindCCTPBurn, FromChainCAIP2: src.ChainCAIP2, ToChainCAIP2: req.ChainCAIP2, Asset: req.Asset,
+				{Kind: StepKindCCTPBurn, FromChainCAIP2: src.ChainCAIP2, ToChainCAIP2: req.ChainCAIP2, Asset: srcAsset,
 					AmountAtomic: shortfall, Recipient: agent, RecipientRole: RecipientRoleAgentSelf},
 				{Kind: StepKindCCTPMint, ToChainCAIP2: req.ChainCAIP2, Asset: req.Asset,
 					AmountAtomic: shortfall, Recipient: agent, RecipientRole: RecipientRoleAgentSelf},
 			}
-			p, err := finalizePlan(base, g)
-			return p, true, err
+			return finalizeFundPlan(base, shortfall, fee, g)
+		}
+		return base, false, nil
+	}
+
+	order := []func() (Plan, bool, error){tryGW, tryCCTP}
+	if prefer == PreferRailCCTPFast {
+		order = []func() (Plan, bool, error){tryCCTP, tryGW}
+	}
+	for _, fn := range order {
+		if p, ok, err := fn(); ok || err != nil {
+			return p, ok, err
 		}
 	}
 	return base, false, nil
 }
 
-func finalizePlan(p Plan, g *Guard) (Plan, error) {
+func finalizeFundPlan(p Plan, shortfall decimal.Decimal, fee *FeeConfig, g *Guard) (Plan, bool, error) {
+	attachFee(&p, shortfall, fee)
 	if err := g.CheckPlan(p); err != nil {
-		return Plan{}, err
+		return Plan{}, true, err
 	}
-	return p, nil
+	return p, true, nil
+}
+
+func attachFee(p *Plan, shortfall decimal.Decimal, fee *FeeConfig) {
+	if fee == nil || fee.Bps <= 0 || strings.TrimSpace(fee.Recipient) == "" {
+		return
+	}
+	if !isFundMovingAction(p.Action) {
+		return
+	}
+	amt := computeFeeAtomic(shortfall, fee.Bps)
+	if !amt.IsPositive() {
+		return
+	}
+	settle := strings.TrimSpace(fee.SettleVia)
+	if settle == "" {
+		settle = SettleViaX402
+	}
+	chain := strings.TrimSpace(fee.ChainCAIP2)
+	if chain == "" {
+		chain = p.Required.ChainCAIP2
+	}
+	asset := strings.TrimSpace(fee.Asset)
+	if asset == "" {
+		asset = p.Required.Asset
+	}
+	// Fee lives only on plan.fee (envelope metadata for post-prepare x402 settle).
+	// Never append orchestrator_fee to steps[] — naive agents must not auto-execute it as a transfer.
+	p.Fee = &PlanFee{
+		Bps:           fee.Bps,
+		AmountAtomic:  amt,
+		Recipient:     strings.TrimSpace(fee.Recipient),
+		RecipientRole: RecipientRoleOrchestrator,
+		SettleVia:     settle,
+		ChainCAIP2:    chain,
+		Asset:         asset,
+	}
+}
+
+func isFundMovingAction(a PlanAction) bool {
+	switch a {
+	case ActionCircleGatewayWithdraw, ActionCircleGatewayDepositWithdraw, ActionCCTPFast:
+		return true
+	default:
+		return false
+	}
+}
+
+// computeFeeAtomic returns ceil(shortfall * bps / 10000) in whole atomic units.
+func computeFeeAtomic(shortfall decimal.Decimal, bps int64) decimal.Decimal {
+	if bps <= 0 || !shortfall.IsPositive() {
+		return decimal.Zero
+	}
+	// Integer ceil: (shortfall*bps + 9999) / 10000
+	num := shortfall.Mul(decimal.NewFromInt(bps)).Add(decimal.NewFromInt(9999))
+	return num.Div(decimal.NewFromInt(10000)).Truncate(0)
 }
 
 func hasNativeCover(req Required, inv Inventory) bool {
 	return sumMatching(req, inv, LocationNative, req.ChainCAIP2).GreaterThanOrEqual(req.AmountAtomic)
 }
 
-func locationSum(req Required, inv Inventory, loc string) decimal.Decimal {
+// locationSumGateway sums circle_gateway USDC (unified balance; not chain-scoped).
+func locationSumGateway(req Required, inv Inventory) decimal.Decimal {
 	sum := decimal.Zero
 	for _, b := range inv.Balances {
-		if normalizeLoc(b.Location) != loc {
+		if normalizeLoc(b.Location) != LocationCircleGateway {
 			continue
 		}
-		if !assetEqual(b.Asset, req.Asset, req.ChainCAIP2) {
+		if !gatewayAssetMatch(b.Asset, req.Asset) {
 			continue
 		}
 		sum = sum.Add(b.AmountAtomic)
@@ -333,7 +546,25 @@ func locationSum(req Required, inv Inventory, loc string) decimal.Decimal {
 	return sum
 }
 
-func findOtherNativeSource(req Required, inv Inventory, need decimal.Decimal) (Balance, bool) {
+func gatewayAssetMatch(bAsset, reqAsset string) bool {
+	bAsset = strings.TrimSpace(bAsset)
+	// Empty asset is incomplete inventory — do not treat as USDC.
+	if bAsset == "" {
+		return false
+	}
+	if strings.EqualFold(bAsset, "USDC") {
+		return true
+	}
+	if IsKnownUSDCAsset(bAsset) {
+		return true
+	}
+	if IsKnownUSDCAsset(reqAsset) && assetEqual(bAsset, reqAsset, "eip155:1") {
+		return true
+	}
+	return assetEqual(bAsset, reqAsset, "eip155:1")
+}
+
+func findOtherNativeSource(req Required, inv Inventory, need decimal.Decimal, sources []string) (Balance, bool) {
 	for _, b := range inv.Balances {
 		if normalizeLoc(b.Location) != LocationNative {
 			continue
@@ -344,7 +575,10 @@ func findOtherNativeSource(req Required, inv Inventory, need decimal.Decimal) (B
 		if chainIsSolana(b.ChainCAIP2) {
 			continue
 		}
-		if !assetEqual(b.Asset, req.Asset, req.ChainCAIP2) && !looseUSDCAssetMatch(b.Asset, req.Asset) {
+		if len(sources) > 0 && !chainInList(b.ChainCAIP2, sources) {
+			continue
+		}
+		if !crossChainUSDCMatch(b.Asset, b.ChainCAIP2, req.Asset, req.ChainCAIP2) {
 			continue
 		}
 		if b.AmountAtomic.GreaterThanOrEqual(need) {
@@ -352,6 +586,44 @@ func findOtherNativeSource(req Required, inv Inventory, need decimal.Decimal) (B
 		}
 	}
 	return Balance{}, false
+}
+
+func chainInList(chain string, list []string) bool {
+	for _, c := range list {
+		if strings.EqualFold(strings.TrimSpace(c), strings.TrimSpace(chain)) {
+			return true
+		}
+	}
+	return false
+}
+
+func crossChainUSDCMatch(srcAsset, srcChain, destAsset, destChain string) bool {
+	if assetEqual(srcAsset, destAsset, destChain) {
+		return true
+	}
+	// Per-chain registry USDC (real multi-chain inventories).
+	if srcU, ok := DefaultUSDC(srcChain); ok && assetEqual(srcAsset, srcU, srcChain) {
+		if destU, ok := DefaultUSDC(destChain); ok && assetEqual(destAsset, destU, destChain) {
+			return true
+		}
+		if IsKnownUSDCAsset(destAsset) {
+			return true
+		}
+	}
+	if IsKnownUSDCAsset(srcAsset) && IsKnownUSDCAsset(destAsset) {
+		return true
+	}
+	return false
+}
+
+func stepAssetForChain(rowAsset, chainCAIP2, fallback string) string {
+	if strings.TrimSpace(rowAsset) != "" {
+		return strings.TrimSpace(rowAsset)
+	}
+	if u, ok := DefaultUSDC(chainCAIP2); ok {
+		return u
+	}
+	return fallback
 }
 
 func sumMatching(req Required, inv Inventory, loc, chain string) decimal.Decimal {
@@ -363,12 +635,24 @@ func sumMatching(req Required, inv Inventory, loc, chain string) decimal.Decimal
 		if !strings.EqualFold(strings.TrimSpace(b.ChainCAIP2), strings.TrimSpace(chain)) {
 			continue
 		}
-		if !assetEqual(b.Asset, req.Asset, req.ChainCAIP2) {
+		// Same-chain USDC equivalence (symbol "USDC" ↔ registry contract), aligned with
+		// gateway/cross-chain matching so shortfall-only is not inflated.
+		if !sameChainUSDCMatch(b.Asset, req.Asset, chain) {
 			continue
 		}
 		sum = sum.Add(b.AmountAtomic)
 	}
 	return sum
+}
+
+// sameChainUSDCMatch treats registry USDC contract and symbol "USDC" as equivalent
+// on a single chain (client-asserted inventory may use either form).
+func sameChainUSDCMatch(rowAsset, reqAsset, chain string) bool {
+	if assetEqual(rowAsset, reqAsset, chain) {
+		return true
+	}
+	// Reuse cross-chain logic with both sides on the same CAIP-2.
+	return crossChainUSDCMatch(rowAsset, chain, reqAsset, chain)
 }
 
 func normalizeLoc(loc string) string {
@@ -394,10 +678,6 @@ func assetEqual(a, b, chainCAIP2 string) bool {
 	return strings.EqualFold(a, b)
 }
 
-func looseUSDCAssetMatch(a, b string) bool {
-	return assetEqual(a, b, "eip155:1")
-}
-
 // PlanToWire maps a Plan to the agent-facing types.Plan.
 func PlanToWire(p Plan) types.Plan {
 	steps := make([]types.PlanStep, 0, len(p.Steps))
@@ -414,6 +694,10 @@ func PlanToWire(p Plan) types.Plan {
 	}
 	var reqWire *types.Required
 	if p.Required.PayTo != "" {
+		src := p.Required.AmountSource
+		if src == "" {
+			src = AmountSourceProbe
+		}
 		reqWire = &types.Required{
 			Protocol:     p.Required.Protocol,
 			ChainCAIP2:   p.Required.ChainCAIP2,
@@ -421,8 +705,24 @@ func PlanToWire(p Plan) types.Plan {
 			AmountAtomic: p.Required.AmountAtomic.String(),
 			PayTo:        p.Required.PayTo,
 			PayToRole:    RecipientRoleMerchant,
-			Source:       "probe",
+			Source:       src,
 		}
+	}
+	var feeWire *types.Fee
+	if p.Fee != nil {
+		feeWire = &types.Fee{
+			Bps:           p.Fee.Bps,
+			AmountAtomic:  p.Fee.AmountAtomic.String(),
+			Recipient:     p.Fee.Recipient,
+			RecipientRole: p.Fee.RecipientRole,
+			SettleVia:     p.Fee.SettleVia,
+			ChainCAIP2:    p.Fee.ChainCAIP2,
+			Asset:         p.Fee.Asset,
+		}
+	}
+	amountSrc := p.Required.AmountSource
+	if amountSrc == "" {
+		amountSrc = AmountSourceProbe
 	}
 	return types.Plan{
 		Action:              string(p.Action),
@@ -434,11 +734,13 @@ func PlanToWire(p Plan) types.Plan {
 		InventoryUnverified: p.InventoryUnverified,
 		Executed:            p.Executed,
 		DryRun:              p.DryRun,
-		AmountSource:        p.Required.AmountSource,
+		AmountSource:        amountSrc,
+		Fee:                 feeWire,
 	}
 }
 
 // InventoryFromWire parses wire inventory into planner Inventory.
+// Non-positive balance amounts (zero or negative) are rejected as invalid_query.
 func InventoryFromWire(inv types.Inventory) (Inventory, error) {
 	out := Inventory{AgentAddress: strings.TrimSpace(inv.AgentAddress)}
 	for i, b := range inv.Balances {
@@ -446,6 +748,10 @@ func InventoryFromWire(inv types.Inventory) (Inventory, error) {
 		if err != nil {
 			return Inventory{}, liqerr.Wrap(liqerr.CodeInvalidQuery, err,
 				"liquidity: balances[%d].amount_atomic", i)
+		}
+		if !amt.IsPositive() {
+			return Inventory{}, liqerr.New(liqerr.CodeInvalidQuery,
+				"liquidity: balances[%d].amount_atomic must be positive (got %s)", i, amt.String())
 		}
 		out.Balances = append(out.Balances, Balance{
 			ChainCAIP2:   strings.TrimSpace(b.ChainCAIP2),
@@ -455,4 +761,29 @@ func InventoryFromWire(inv types.Inventory) (Inventory, error) {
 		})
 	}
 	return out, nil
+}
+
+// OrchestrationFromWire maps wire orchestration options.
+func OrchestrationFromWire(o *types.Orchestration) *Orchestration {
+	if o == nil {
+		return nil
+	}
+	return &Orchestration{
+		TargetChainCAIP2:   strings.TrimSpace(o.TargetChainCAIP2),
+		SourceChainCAIP2s:  append([]string(nil), o.SourceChainCAIP2s...),
+		AllowCircleGateway: o.AllowCircleGateway,
+		PreferRail:         strings.TrimSpace(o.PreferRail),
+	}
+}
+
+// FeeConfigFromWire builds FeeConfig from request fee fields.
+func FeeConfigFromWire(bps int64, recipient string) *FeeConfig {
+	if bps == 0 && strings.TrimSpace(recipient) == "" {
+		return nil
+	}
+	return &FeeConfig{
+		Bps:       bps,
+		Recipient: strings.TrimSpace(recipient),
+		SettleVia: SettleViaX402,
+	}
 }
