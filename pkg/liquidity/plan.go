@@ -5,7 +5,8 @@
 // Payment-Signature — never a bridge/mint destination.
 //
 // Rails (naming avoids "gateway" alone to prevent MoR confusion):
-//   circle_gateway_withdraw | circle_gateway_deposit_withdraw | cctp_fast
+//
+//	circle_gateway_withdraw | circle_gateway_deposit_withdraw | cctp_fast
 package liquidity
 
 import (
@@ -13,8 +14,8 @@ import (
 
 	"github.com/shopspring/decimal"
 
-	liqerr "github.com/kilian1103/usdc-liquidity-orchestrator/pkg/errors"
-	"github.com/kilian1103/usdc-liquidity-orchestrator/pkg/types"
+	liqerr "github.com/kaimo-no/usdc-liquidity-orchestrator/pkg/errors"
+	"github.com/kaimo-no/usdc-liquidity-orchestrator/pkg/types"
 )
 
 // PlanAction is the dry liquidity plan outcome.

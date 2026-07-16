@@ -1,21 +1,79 @@
 name: ci
+
+# Core CI: lint, test (race + 60% coverage), build.
+# Security siblings: govulncheck.yml, actionlint.yml, gitleaks.yml + dependabot.
+
 on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: download deps
+        run: go mod download
+      - name: gofmt
+        run: |
+          out=$(gofmt -l .)
+          if [ -n "$out" ]; then
+            echo "gofmt diffs:"
+            echo "$out"
+            exit 1
+          fi
+      - name: test layout
+        run: bash scripts/check-test-layout.sh
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: latest
+          install-mode: goinstall
+      - name: go vet
+        run: go vet ./...
+
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
-      - run: go test -race -count=1 ./...
-      - run: go vet ./...
-      - run: go build -o /tmp/ulo-server ./cmd/server
-      - run: go build -o /tmp/ulo-demo ./cmd/demo
+          cache: true
+      - name: download deps
+        run: go mod download
+      - name: test
+        run: go test -v -race -coverprofile=coverage.out -coverpkg=./... ./...
+      - name: coverage floor
+        run: |
+          total=$(go tool cover -func=coverage.out | grep '^total' | awk '{print $3}' | tr -d '%')
+          awk -v t="$total" 'BEGIN { if (t+0 < 60) { print "FAIL: coverage " t "% < 60%"; exit 1 } else { print "OK: coverage " t "%" } }'
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: build
+        run: go build ./...
+
+  check:
+    needs: [lint, test, build]
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "all green"

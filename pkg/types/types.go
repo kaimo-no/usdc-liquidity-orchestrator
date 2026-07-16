@@ -64,7 +64,7 @@ type PlanRequest struct {
 
 // PlanResponse is the HTTP plan output.
 type PlanResponse struct {
-	Plan  Plan   `json:"plan"`
+	Plan  Plan      `json:"plan"`
 	Error *APIError `json:"error,omitempty"`
 }
 

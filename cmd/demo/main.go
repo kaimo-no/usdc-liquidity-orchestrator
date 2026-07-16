@@ -9,17 +9,17 @@ import (
 
 	"github.com/shopspring/decimal"
 
-	"github.com/kilian1103/usdc-liquidity-orchestrator/pkg/liquidity"
+	"github.com/kaimo-no/usdc-liquidity-orchestrator/pkg/liquidity"
 )
 
 func main() {
 	const (
-		base   = "eip155:8453"
-		arb    = "eip155:42161"
-		usdc   = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
-		payTo  = "0xMerchantOnBase0000000000000000000001"
-		agent  = "0xAgentSelf000000000000000000000000000001"
-		need   = "42000000" // 42 USDC (6 decimals)
+		base  = "eip155:8453"
+		arb   = "eip155:42161"
+		usdc  = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+		payTo = "0xMerchantOnBase0000000000000000000001"
+		agent = "0xAgentSelf000000000000000000000000000001"
+		need  = "42000000" // 42 USDC (6 decimals)
 	)
 
 	req := liquidity.Required{

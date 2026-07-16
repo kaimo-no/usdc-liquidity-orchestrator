@@ -1,4 +1,4 @@
-module github.com/kilian1103/usdc-liquidity-orchestrator
+module github.com/kaimo-no/usdc-liquidity-orchestrator
 
 go 1.26.4
 
