@@ -27,6 +27,8 @@ General orchestrator: agent pins **target** + optional **source** allowlist; Gat
 - Fee (`orchestrator` / `settle_via=x402`) is **plan.fee only** — not a fund rail recipient and **not** a step in `steps[]`
 - `agent_address == pay_to` refused on fund-moving plans (anti–confused-deputy)
 - Inventory amounts must be positive (zero/negative → `invalid_query`)
+- Dest-native shortfall uses same-chain USDC match (symbol `"USDC"` ↔ registry contract)
+- `CheckPlan`: no agent bootstrap from steps; empty pay_to fail-closed on fund plans; unknown step kinds refused; MaxAmountAtomic caps step amounts
 - Atomic `decimal.Decimal` without `Round(2)`
 
 ## Known limitations
