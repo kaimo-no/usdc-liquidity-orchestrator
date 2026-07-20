@@ -49,15 +49,26 @@ type Plan struct {
 	Fee                 *Fee       `json:"fee,omitempty"`
 }
 
+// PrepareCall is an unsigned EVM call for agent-side signing (advisory; server-generated).
+type PrepareCall struct {
+	ChainCAIP2  string `json:"chain_caip2,omitempty"`
+	To          string `json:"to,omitempty"`
+	Data        string `json:"data,omitempty"`
+	Value       string `json:"value,omitempty"`
+	Method      string `json:"method,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
 // PlanStep is one fund-movement or note. Fund steps use recipient_role=agent_self.
 type PlanStep struct {
-	Kind           string `json:"kind"`
-	FromChainCAIP2 string `json:"from_chain_caip2,omitempty"`
-	ToChainCAIP2   string `json:"to_chain_caip2,omitempty"`
-	Asset          string `json:"asset,omitempty"`
-	AmountAtomic   string `json:"amount_atomic,omitempty"`
-	Recipient      string `json:"recipient,omitempty"`
-	RecipientRole  string `json:"recipient_role,omitempty"`
+	Kind           string        `json:"kind"`
+	FromChainCAIP2 string        `json:"from_chain_caip2,omitempty"`
+	ToChainCAIP2   string        `json:"to_chain_caip2,omitempty"`
+	Asset          string        `json:"asset,omitempty"`
+	AmountAtomic   string        `json:"amount_atomic,omitempty"`
+	Recipient      string        `json:"recipient,omitempty"`
+	RecipientRole  string        `json:"recipient_role,omitempty"`
+	PrepareCalls   []PrepareCall `json:"prepare_calls,omitempty"`
 }
 
 // Inventory is client-asserted balances (never server-custodied product funds).
@@ -85,6 +96,13 @@ type PlanRequest struct {
 	Execute        bool           `json:"execute,omitempty"`
 }
 
+// ConsolidateRequest is POST /v1/consolidate input (no merchant claim / fee).
+type ConsolidateRequest struct {
+	Inventory     Inventory      `json:"inventory"`
+	Orchestration *Orchestration `json:"orchestration,omitempty"`
+	Execute       bool           `json:"execute,omitempty"`
+}
+
 // PlanResponse is the HTTP plan output.
 type PlanResponse struct {
 	Plan  Plan      `json:"plan"`
@@ -105,6 +123,8 @@ type ChainInfo struct {
 	USDC          string `json:"usdc"`
 	GatewayOK     bool   `json:"gateway_ok"`
 	CCTPOK        bool   `json:"cctp_ok"`
+	Testnet       bool   `json:"testnet"`
+	GatewayWallet string `json:"gateway_wallet,omitempty"`
 }
 
 // ChainsResponse is the GET /v1/chains body.

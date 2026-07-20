@@ -1,6 +1,6 @@
-// Command demo runs the hackathon worked example:
-// merchant wants 42 USDC on Arc Testnet via x402; agent funds from circle_gateway
-// unified balance (shortfall-only to agent_self) with optional kaimo fee.
+// Command demo runs hackathon worked examples:
+// 1) shortfall Gateway withdraw to agent_self on Arc Testnet
+// 2) multi-chain native consolidate into Circle Gateway (unsigned prepare_calls)
 package main
 
 import (
@@ -14,6 +14,12 @@ import (
 )
 
 func main() {
+	demoShortfallPlan()
+	fmt.Fprint(os.Stderr, "\n--- consolidate ---\n\n")
+	demoConsolidate()
+}
+
+func demoShortfallPlan() {
 	const (
 		arc     = "eip155:5042002"
 		arcUSDC = "0x3600000000000000000000000000000000000000"
@@ -34,9 +40,7 @@ func main() {
 	inv := liquidity.Inventory{
 		AgentAddress: agent,
 		Balances: []liquidity.Balance{
-			// Unified Gateway balance (preferred source).
 			{Asset: "USDC", AmountAtomic: decimal.RequireFromString("100000000"), Location: liquidity.LocationCircleGateway},
-			// Partial native on Arc — shortfall only is moved.
 			{ChainCAIP2: arc, Asset: arcUSDC, AmountAtomic: decimal.RequireFromString("20000000"), Location: liquidity.LocationNative},
 		},
 	}
@@ -44,9 +48,8 @@ func main() {
 		TargetChainCAIP2: arc,
 		PreferRail:       liquidity.PreferRailCircleGateway,
 	}
-	// allow_circle_gateway defaults true when nil
 	fee := &liquidity.FeeConfig{
-		Bps:       25, // 0.25%
+		Bps:       25,
 		Recipient: feeTo,
 		SettleVia: liquidity.SettleViaX402,
 	}
@@ -67,5 +70,38 @@ func main() {
 	if plan.Fee != nil {
 		fmt.Fprintf(os.Stderr, "# kaimo fee %s bps amount_atomic=%s settle_via=%s → %s\n",
 			fmt.Sprint(plan.Fee.Bps), plan.Fee.AmountAtomic.String(), plan.Fee.SettleVia, plan.Fee.Recipient)
+	}
+}
+
+func demoConsolidate() {
+	const (
+		arc         = "eip155:5042002"
+		arcUSDC     = "0x3600000000000000000000000000000000000000"
+		baseSep     = "eip155:84532"
+		baseSepUSDC = "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+		agent       = "0xAgentSelf000000000000000000000000000001"
+	)
+	inv := liquidity.Inventory{
+		AgentAddress: agent,
+		Balances: []liquidity.Balance{
+			{ChainCAIP2: baseSep, Asset: baseSepUSDC, AmountAtomic: decimal.RequireFromString("3000000"), Location: liquidity.LocationNative},
+			{ChainCAIP2: arc, Asset: arcUSDC, AmountAtomic: decimal.RequireFromString("1000000"), Location: liquidity.LocationNative},
+		},
+	}
+	plan, err := liquidity.PlanConsolidate(inv, nil, nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "consolidate error: %v\n", err)
+		os.Exit(1)
+	}
+	wire := liquidity.PlanToWire(plan)
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(wire)
+
+	fmt.Fprintf(os.Stderr, "\n# action=%s steps=%d dry_run=%v\n", plan.Action, len(plan.Steps), plan.DryRun)
+	fmt.Fprintf(os.Stderr, "# full-balance circle_gateway deposits; prepare_calls are unsigned (agent signs)\n")
+	if len(plan.Steps) > 0 && len(plan.Steps[0].PrepareCalls) > 0 {
+		fmt.Fprintf(os.Stderr, "# first step prepare: approve → %s, deposit → gateway wallet\n",
+			plan.Steps[0].PrepareCalls[0].To)
 	}
 }
