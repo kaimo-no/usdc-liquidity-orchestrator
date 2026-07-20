@@ -12,8 +12,9 @@ Pre-production / hackathon ops checklist for **usdc-liquidity-orchestrator**.
 
 1. Never configure live spend keys in CI or public logs  
 2. If adding Circle Gateway / CCTP execute: keep keys out of git; document env vars in root `CLAUDE.md` + `README.md`  
-3. Do not log full inventory or private keys  
+3. Do not log full inventory, private keys, or prepare calldata — covers `POST /v1/plan` and `POST /v1/consolidate`  
 4. Merchant `pay_to` is untrusted discovery data — prepare never transfers to it  
+5. Gateway Wallet addresses are non-secret constants (testnet/mainnet); not credentials  
 
 ## HTTP
 

@@ -25,6 +25,7 @@ const (
 	ActionNoop                         PlanAction = "noop"
 	ActionCircleGatewayWithdraw        PlanAction = "circle_gateway_withdraw"
 	ActionCircleGatewayDepositWithdraw PlanAction = "circle_gateway_deposit_withdraw"
+	ActionCircleGatewayConsolidate     PlanAction = "circle_gateway_consolidate"
 	ActionCCTPFast                     PlanAction = "cctp_fast"
 	ActionInsufficient                 PlanAction = "insufficient"
 	ActionCorridorUnsupported          PlanAction = "corridor_unsupported"
@@ -113,6 +114,7 @@ type PlanStep struct {
 	AmountAtomic   decimal.Decimal
 	Recipient      string
 	RecipientRole  string
+	PrepareCalls   []PrepareCall
 }
 
 // Plan is the pure planner output (Executed always false from PlanLiquidity).
@@ -466,6 +468,9 @@ func tryBridgePlans(
 
 func finalizeFundPlan(p Plan, shortfall decimal.Decimal, fee *FeeConfig, g *Guard) (Plan, bool, error) {
 	attachFee(&p, shortfall, fee)
+	if err := attachDepositPrepareCallsOnPlan(&p); err != nil {
+		return Plan{}, true, err
+	}
 	if err := g.CheckPlan(p); err != nil {
 		return Plan{}, true, err
 	}
@@ -510,7 +515,8 @@ func attachFee(p *Plan, shortfall decimal.Decimal, fee *FeeConfig) {
 
 func isFundMovingAction(a PlanAction) bool {
 	switch a {
-	case ActionCircleGatewayWithdraw, ActionCircleGatewayDepositWithdraw, ActionCCTPFast:
+	case ActionCircleGatewayWithdraw, ActionCircleGatewayDepositWithdraw,
+		ActionCircleGatewayConsolidate, ActionCCTPFast:
 		return true
 	default:
 		return false
@@ -682,6 +688,20 @@ func assetEqual(a, b, chainCAIP2 string) bool {
 func PlanToWire(p Plan) types.Plan {
 	steps := make([]types.PlanStep, 0, len(p.Steps))
 	for _, s := range p.Steps {
+		var calls []types.PrepareCall
+		if len(s.PrepareCalls) > 0 {
+			calls = make([]types.PrepareCall, 0, len(s.PrepareCalls))
+			for _, c := range s.PrepareCalls {
+				calls = append(calls, types.PrepareCall{
+					ChainCAIP2:  c.ChainCAIP2,
+					To:          c.To,
+					Data:        c.Data,
+					Value:       c.Value,
+					Method:      c.Method,
+					Description: c.Description,
+				})
+			}
+		}
 		steps = append(steps, types.PlanStep{
 			Kind:           s.Kind,
 			FromChainCAIP2: s.FromChainCAIP2,
@@ -690,6 +710,7 @@ func PlanToWire(p Plan) types.Plan {
 			AmountAtomic:   s.AmountAtomic.String(),
 			Recipient:      s.Recipient,
 			RecipientRole:  s.RecipientRole,
+			PrepareCalls:   calls,
 		})
 	}
 	var reqWire *types.Required
@@ -720,9 +741,13 @@ func PlanToWire(p Plan) types.Plan {
 			Asset:         p.Fee.Asset,
 		}
 	}
-	amountSrc := p.Required.AmountSource
-	if amountSrc == "" {
-		amountSrc = AmountSourceProbe
+	// Omit amount_source when no merchant Required (consolidate / no pay_to).
+	amountSrc := ""
+	if p.Required.PayTo != "" {
+		amountSrc = p.Required.AmountSource
+		if amountSrc == "" {
+			amountSrc = AmountSourceProbe
+		}
 	}
 	return types.Plan{
 		Action:              string(p.Action),

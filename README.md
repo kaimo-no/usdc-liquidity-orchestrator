@@ -50,7 +50,8 @@ wire := liquidity.PlanToWire(plan)
 ### HTTP
 
 `POST /v1/plan` — see [`examples/plan.json`](./examples/plan.json) (Arc Testnet + Gateway)  
-`GET /v1/chains` — registered corridors (CAIP-2, USDC, Gateway domain)  
+`POST /v1/consolidate` — multi-chain full-balance Gateway deposits + unsigned `prepare_calls` ([`examples/consolidate-testnet.json`](./examples/consolidate-testnet.json))  
+`GET /v1/chains` — registered corridors (CAIP-2, USDC, Gateway domain, testnet, gateway_wallet)  
 `GET /healthz`
 
 ---
@@ -67,17 +68,19 @@ cmd/demo       worked example
 
 Plan preference: `noop` → `circle_gateway_withdraw` → `circle_gateway_deposit_withdraw` → `cctp_fast` → `insufficient` / `corridor_unsupported` (override with `orchestration.prefer_rail`).
 
+`POST /v1/consolidate` plans action `circle_gateway_consolidate` (full native USDC → Gateway Wallet deposits; no merchant claim). Deposit steps may include advisory unsigned `prepare_calls` (approve + deposit).
+
 Optional `fee_bps` + `fee_recipient` attach a kaimo orchestration fee settled **after** prepare (e.g. x402) — never a prepare fund-move destination.
 
 ### Hard invariants
 
 1. Fund-move recipient = **agent_self** only  
-2. Empty `pay_to` → fail closed  
+2. Empty `pay_to` → fail closed on withdraw/cctp (deposit-only consolidate may omit pay_to)  
 3. Amount override only when probe amount missing  
 4. Dry plan: `executed=false`, `dry_run=true`  
 5. Execute stub always errors  
 6. Atomic `decimal.Decimal` (no float64, no GBP Round(2))  
-7. **Shortfall-only** rebalance  
+7. **Shortfall-only** rebalance (plan path); consolidate deposits full native balances  
 8. Rails named `circle_gateway_*` / `cctp_fast` (never bare `gateway`)  
 9. `agent_address == pay_to` is **refused** on fund-moving plans (anti–confused-deputy: prepare must not look like a merchant payout)  
 10. Optional fee is **plan.fee envelope only** — never an `orchestrator_fee` step (naive agents must not auto-execute fee as a transfer)

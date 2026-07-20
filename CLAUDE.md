@@ -20,8 +20,8 @@ It does **not** take product custody and does **not** route funds through a plat
 | L0 wire types (`pkg/types`) | shipped |
 | L1 pure planner (`pkg/liquidity`) | shipped — shortfall-only moves |
 | L2 execute | fail-closed `UnconfiguredExecutor` (no live Circle SDK yet) |
-| HTTP microservice (`cmd/server`) | `POST /v1/plan`, `GET /v1/chains`, `GET /healthz` |
-| CLI demo (`cmd/demo`) | worked example for judges |
+| HTTP microservice (`cmd/server`) | `POST /v1/plan`, `POST /v1/consolidate`, `GET /v1/chains`, `GET /healthz` |
+| CLI demo (`cmd/demo`) | shortfall plan + consolidate worked examples |
 
 Related private monorepo: `kaimo-no/kaimo-go` (World B commerce router can call this as a library or HTTP service). **This repo has zero import of kaimo-go.**
 
@@ -45,12 +45,14 @@ Related private monorepo: `kaimo-no/kaimo-go` (World B commerce router can call 
 - **Amount override** only when probe amount is missing; cannot change payTo / network / asset.
 - **Dry plan stamps:** `dry_run=true`, `executed=false`, `inventory_asserted=true`, `inventory_unverified=true` until real execute lands.
 - **`UnconfiguredExecutor` never succeeds.** `execute=true` returns `liquidity_rail_unavailable` (or `insufficient_liquidity` for shortfall actions).
+- **Consolidate:** `PlanConsolidate` / `POST /v1/consolidate` — full-balance Gateway deposits, no pay_to/fee; deposit steps may include advisory unsigned `prepare_calls`.
+- **Guard dual predicates:** withdraw/cctp need merchant `pay_to`; deposit-only may have empty pay_to.
 - **Rail naming:** `circle_gateway_*` / `cctp_fast` — never bare `gateway` (avoids MoR / HTTP-gateway confusion). Bare inventory location `"gateway"` is ignored as invalid.
 - **Shortfall-only rebalance:** plan amount = `required − dest_native`, not full required when dest already holds partial funds.
 - **Orchestration options:** optional `target_chain_caip2` (must match required), `source_chain_caip2s` allowlist, `allow_circle_gateway`, `prefer_rail`.
 - **Fee:** optional `fee_bps` + `fee_recipient` — plan.fee envelope only (never a step); settle via x402 after prepare; not a fund-rail destination.
 - **`agent_address == pay_to` refused** on fund-moving plans (anti–confused-deputy).
-- **No durable buyer ledger** in this repo. Inventory is request-scoped; do not log balances or wallet private keys.
+- **No durable buyer ledger** in this repo. Inventory is request-scoped; do not log balances, wallet private keys, or prepare calldata (`/v1/plan` and `/v1/consolidate`).
 - **Canonical layout:** library packages under `pkg/`; thin `cmd/*/main.go`; black-box tests under `tests/` as `package <foo>_test`.
 - **Sources / adapters are small interfaces** (`Executor`). No type embedding for behaviour reuse.
 

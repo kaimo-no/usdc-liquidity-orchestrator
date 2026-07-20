@@ -38,5 +38,6 @@ Public Go library + thin HTTP service: **non-custodial multi-chain USDC liquidit
 - agent_self recipients only; never pay_to as bridge dest  
 - shortfall-only rebalance  
 - dry plans never claim funded  
+- deposit-only consolidate may omit pay_to; withdraw/cctp still require it  
 - `decimal.Decimal` atomic units, no float64  
 - tests under `tests/` as `package *_test`  
