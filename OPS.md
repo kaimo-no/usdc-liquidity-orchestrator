@@ -22,6 +22,8 @@ Pre-production / hackathon ops checklist for **usdc-liquidity-orchestrator**.
 |---|---|---|
 | `LISTEN_ADDR` | `:8088` | Bind address |
 
+Docker/compose publish the same port (`8088:8088`). Probe externally (`curl …/healthz`); the distroless image has no shell for in-container healthchecks.
+
 ## Security scans (local)
 
 ```bash
