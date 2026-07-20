@@ -1,0 +1,21 @@
+.git
+.github
+.vscode
+.claude
+.agents
+.lavish
+bin
+coverage.out
+*.exe
+.DS_Store
+kaimo-pr.diff
+pr.diff
+
+# Docs and local tooling (not needed to compile cmd/server)
+*.md
+examples
+scripts
+
+# Tests are not compiled into the server binary
+**/*_test.go
+**/tests

@@ -1,0 +1,24 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "HTTP Server",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/cmd/server",
+      "env": {
+        "LISTEN_ADDR": ":8088"
+      },
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Demo (CLI)",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/cmd/demo",
+      "console": "integratedTerminal"
+    }
+  ]
+}

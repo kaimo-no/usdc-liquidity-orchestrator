@@ -39,6 +39,37 @@ bash examples/curl.sh              # Arc + gateway (default)
 curl -s localhost:8088/v1/chains | jq .
 ```
 
+## VS Code / Cursor
+
+Requires the [Go extension](https://marketplace.visualstudio.com/items?itemName=golang.Go) (Delve debugger).
+
+1. Open this repo as the workspace folder
+2. **Run and Debug** → choose a configuration:
+   - **HTTP Server** — `cmd/server` on `LISTEN_ADDR=:8088`
+   - **Demo (CLI)** — `cmd/demo` worked examples (exits when done)
+
+Configs live in [`.vscode/launch.json`](./.vscode/launch.json).
+
+## Docker
+
+Multi-stage image builds a static `cmd/server` binary (distroless, non-root). No secrets required for plan-only mode.
+
+```bash
+docker compose up --build
+# or:
+docker build -t usdc-liquidity-orchestrator:local .
+docker run --rm -p 8088:8088 usdc-liquidity-orchestrator:local
+```
+
+Smoke test (another terminal):
+
+```bash
+curl -sS localhost:8088/healthz
+bash examples/curl.sh
+```
+
+Bind address inside the container is `LISTEN_ADDR` (default `:8088`); map host port `8088` as above.
+
 ## Agent / IDE
 
 - Root `CLAUDE.md` + package `CLAUDE.md` files for coding agents
