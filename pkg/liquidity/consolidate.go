@@ -13,47 +13,74 @@ import (
 // Eligible: native USDC on GatewayOK chains with a known Gateway Wallet.
 // Optional source allowlist; AllowCircleGateway=false → invalid_query.
 func PlanConsolidate(inv Inventory, o *Orchestration, g *Guard) (Plan, error) {
+	agent, err := validateConsolidate(inv, o, g)
+	if err != nil {
+		return Plan{}, err
+	}
+	base := consolidateDryBase(agent)
+	sums, assets, canonical := collectConsolidateSources(inv, sourceAllowlist(o))
+	steps := buildConsolidateSteps(sums, assets, canonical, agent)
+	if len(steps) == 0 {
+		return consolidateNoop(base), nil
+	}
+	base.Action = ActionCircleGatewayConsolidate
+	base.Reason = "deposit full native USDC balances into circle_gateway (agent_self)"
+	base.Steps = steps
+	if err := attachDepositPrepareCallsOnPlan(&base); err != nil {
+		return Plan{}, err
+	}
+	if err := g.CheckPlan(base); err != nil {
+		return Plan{}, err
+	}
+	return base, nil
+}
+
+func validateConsolidate(inv Inventory, o *Orchestration, g *Guard) (agent string, err error) {
 	if o != nil && !o.gatewayAllowed() {
-		return Plan{}, liqerr.New(liqerr.CodeInvalidQuery,
+		return "", liqerr.New(liqerr.CodeInvalidQuery,
 			"liquidity: allow_circle_gateway=false refuses consolidate")
 	}
-	agent := strings.TrimSpace(inv.AgentAddress)
+	agent = strings.TrimSpace(inv.AgentAddress)
 	if agent == "" {
-		return Plan{}, liqerr.New(liqerr.CodeInvalidQuery,
+		return "", liqerr.New(liqerr.CodeInvalidQuery,
 			"liquidity: agent_address required to plan consolidate (agent_self recipient)")
 	}
 	if err := g.CheckAgent(inv); err != nil {
-		return Plan{}, err
+		return "", err
 	}
+	return agent, nil
+}
 
-	sources := sourceAllowlist(o)
-	// chain → sum of eligible native USDC rows
-	sums := map[string]decimal.Decimal{}
-	assets := map[string]string{}
-	canonical := map[string]string{} // lower key → registry CAIP-2
+func consolidateDryBase(agent string) Plan {
+	return Plan{
+		InventoryAsserted:   true,
+		InventoryUnverified: true,
+		Executed:            false,
+		DryRun:              true,
+		agentAddress:        agent,
+		RecipientRole:       RecipientRoleAgentSelf,
+	}
+}
 
+func consolidateNoop(base Plan) Plan {
+	base.Action = ActionNoop
+	base.Reason = "noop: no eligible native USDC on GatewayOK chains to consolidate"
+	return base
+}
+
+// collectConsolidateSources sums native USDC on GatewayOK chains (optional allowlist).
+// Keys are lower-case CAIP-2; canonical holds registry form.
+func collectConsolidateSources(inv Inventory, sources []string) (
+	sums map[string]decimal.Decimal,
+	assets map[string]string,
+	canonical map[string]string,
+) {
+	sums = map[string]decimal.Decimal{}
+	assets = map[string]string{}
+	canonical = map[string]string{}
 	for _, b := range inv.Balances {
-		if normalizeLoc(b.Location) != LocationNative {
-			continue
-		}
-		chainIn := strings.TrimSpace(b.ChainCAIP2)
-		if chainIn == "" {
-			continue
-		}
-		info, ok := LookupChain(chainIn)
-		if !ok || !info.GatewayOK {
-			continue
-		}
-		if _, ok := GatewayWalletAddress(info.CAIP2); !ok {
-			continue
-		}
-		if len(sources) > 0 && !chainInList(info.CAIP2, sources) {
-			continue
-		}
-		if !nativeUSDCOnChain(b.Asset, info.CAIP2) {
-			continue
-		}
-		if !b.AmountAtomic.IsPositive() {
+		info, ok := eligibleConsolidateChain(b, sources)
+		if !ok {
 			continue
 		}
 		key := strings.ToLower(info.CAIP2)
@@ -63,28 +90,46 @@ func PlanConsolidate(inv Inventory, o *Orchestration, g *Guard) (Plan, error) {
 			assets[key] = stepAssetForChain(b.Asset, info.CAIP2, info.USDC)
 		}
 	}
+	return sums, assets, canonical
+}
 
-	base := Plan{
-		InventoryAsserted:   true,
-		InventoryUnverified: true,
-		Executed:            false,
-		DryRun:              true,
-		agentAddress:        agent,
-		RecipientRole:       RecipientRoleAgentSelf,
+func eligibleConsolidateChain(b Balance, sources []string) (ChainInfo, bool) {
+	if normalizeLoc(b.Location) != LocationNative {
+		return ChainInfo{}, false
 	}
+	chainIn := strings.TrimSpace(b.ChainCAIP2)
+	if chainIn == "" || !b.AmountAtomic.IsPositive() {
+		return ChainInfo{}, false
+	}
+	info, ok := LookupChain(chainIn)
+	if !ok || !info.GatewayOK {
+		return ChainInfo{}, false
+	}
+	if _, ok := GatewayWalletAddress(info.CAIP2); !ok {
+		return ChainInfo{}, false
+	}
+	if len(sources) > 0 && !chainInList(info.CAIP2, sources) {
+		return ChainInfo{}, false
+	}
+	if !nativeUSDCOnChain(b.Asset, info.CAIP2) {
+		return ChainInfo{}, false
+	}
+	return info, true
+}
 
+func buildConsolidateSteps(
+	sums map[string]decimal.Decimal,
+	assets, canonical map[string]string,
+	agent string,
+) []PlanStep {
 	if len(sums) == 0 {
-		base.Action = ActionNoop
-		base.Reason = "noop: no eligible native USDC on GatewayOK chains to consolidate"
-		return base, nil
+		return nil
 	}
-
 	keys := make([]string, 0, len(sums))
 	for k := range sums {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-
 	steps := make([]PlanStep, 0, len(keys))
 	for _, k := range keys {
 		amt := sums[k]
@@ -92,36 +137,23 @@ func PlanConsolidate(inv Inventory, o *Orchestration, g *Guard) (Plan, error) {
 			continue
 		}
 		chain := canonical[k]
-		asset := assets[k]
-		if u, ok := DefaultUSDC(chain); ok && (asset == "" || strings.EqualFold(asset, "USDC")) {
-			asset = u
-		}
 		steps = append(steps, PlanStep{
 			Kind:           StepKindCircleGatewayDeposit,
 			FromChainCAIP2: chain,
-			Asset:          asset,
+			Asset:          consolidateStepAsset(assets[k], chain),
 			AmountAtomic:   amt,
 			Recipient:      agent,
 			RecipientRole:  RecipientRoleAgentSelf,
 		})
 	}
-	if len(steps) == 0 {
-		base.Action = ActionNoop
-		base.Reason = "noop: no eligible native USDC on GatewayOK chains to consolidate"
-		return base, nil
-	}
+	return steps
+}
 
-	base.Action = ActionCircleGatewayConsolidate
-	base.Reason = "deposit full native USDC balances into circle_gateway (agent_self)"
-	base.Steps = steps
-
-	if err := attachDepositPrepareCallsOnPlan(&base); err != nil {
-		return Plan{}, err
+func consolidateStepAsset(asset, chain string) string {
+	if u, ok := DefaultUSDC(chain); ok && (asset == "" || strings.EqualFold(asset, "USDC")) {
+		return u
 	}
-	if err := g.CheckPlan(base); err != nil {
-		return Plan{}, err
-	}
-	return base, nil
+	return asset
 }
 
 func nativeUSDCOnChain(asset, chainCAIP2 string) bool {
