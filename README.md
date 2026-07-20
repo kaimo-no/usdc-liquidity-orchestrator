@@ -36,6 +36,9 @@ go test ./...
 go run ./cmd/demo
 go run ./cmd/server   # :8088
 bash examples/curl.sh
+
+# or containerized:
+docker compose up --build
 ```
 
 ### Library

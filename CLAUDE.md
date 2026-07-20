@@ -80,6 +80,8 @@ golangci-lint run
 go run ./cmd/demo
 go run ./cmd/server   # LISTEN_ADDR=:8088
 bash examples/curl.sh
+
+docker compose up --build   # distroless cmd/server on :8088; see SETUP.md for IDE launch
 ```
 
 ## CI security & analysis
