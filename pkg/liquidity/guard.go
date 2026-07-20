@@ -39,18 +39,41 @@ func (g *Guard) CheckPrepare(req Required, inv Inventory) error {
 	return nil
 }
 
+// CheckAgent validates inventory agent against AllowedAgentAddresses (no merchant claim).
+func (g *Guard) CheckAgent(inv Inventory) error {
+	if g == nil {
+		return nil
+	}
+	if len(g.AllowedAgentAddresses) == 0 {
+		return nil
+	}
+	if strings.TrimSpace(inv.AgentAddress) == "" {
+		return liqerr.New(liqerr.CodeInvalidQuery,
+			"liquidity: agent_address required when AllowedAgentAddresses is set")
+	}
+	// EVM-style comparison when no dest chain is known (consolidate).
+	if !agentAddrAllowed(g.AllowedAgentAddresses, inv.AgentAddress, "eip155:1") {
+		return liqerr.New(liqerr.CodeInvalidQuery,
+			"liquidity: agent_address is not in AllowedAgentAddresses")
+	}
+	return nil
+}
+
 // CheckPlan refuses non-agent_self fund steps and pay_to-as-recipient.
 // Nil receiver is safe (used by bare UnconfiguredExecutor{}).
 //
-// Fail-closed for future live Executors: never bootstrap agent from step recipients;
-// require pay_to when fund-moving; refuse unknown step kinds; cap step amounts.
+// Dual predicates:
+//   - requiresMerchantClaim: withdraw / cctp burn+mint need non-empty pay_to
+//   - fund-moving (incl. deposit): agent_self, recipient==agent, MaxAmountAtomic, kind allowlist
+//
+// Deposit-only plans may have empty pay_to; deposit+withdraw with empty pay_to is refused.
 func (g *Guard) CheckPlan(p Plan) error {
 	hasFund, err := planHasFundSteps(p.Steps)
 	if err != nil {
 		return err
 	}
 	agent := strings.TrimSpace(p.agentAddress)
-	if err := checkFundPlanIdentity(hasFund, p.Required, agent); err != nil {
+	if err := checkFundPlanIdentity(hasFund, requiresMerchantClaim(p.Steps), p.Required, agent); err != nil {
 		return err
 	}
 	for _, s := range p.Steps {
@@ -62,6 +85,17 @@ func (g *Guard) CheckPlan(p Plan) error {
 		return err
 	}
 	return checkMaxAmounts(g, p)
+}
+
+func requiresMerchantClaim(steps []PlanStep) bool {
+	for _, s := range steps {
+		k := strings.ToLower(strings.TrimSpace(s.Kind))
+		switch k {
+		case StepKindCircleGatewayWithdraw, StepKindCCTPBurn, StepKindCCTPMint:
+			return true
+		}
+	}
+	return false
 }
 
 func planHasFundSteps(steps []PlanStep) (bool, error) {
@@ -78,15 +112,12 @@ func planHasFundSteps(steps []PlanStep) (bool, error) {
 	return hasFund, nil
 }
 
-func checkFundPlanIdentity(hasFund bool, req Required, agent string) error {
-	if !hasFund {
-		return nil
-	}
-	if strings.TrimSpace(req.PayTo) == "" {
+func checkFundPlanIdentity(hasFund, needsMerchantClaim bool, req Required, agent string) error {
+	if needsMerchantClaim && strings.TrimSpace(req.PayTo) == "" {
 		return liqerr.New(liqerr.CodeInsufficientLiquidity,
 			"liquidity: empty pay_to — refuse plan")
 	}
-	if agent == "" {
+	if hasFund && agent == "" {
 		return liqerr.New(liqerr.CodeInvalidQuery,
 			"liquidity: agent_address required for fund-moving plan (refuse bootstrap from steps)")
 	}
@@ -110,7 +141,7 @@ func checkMaxAmounts(g *Guard, p Plan) error {
 	if g == nil || !g.MaxAmountAtomic.IsPositive() {
 		return nil
 	}
-	if p.Required.AmountAtomic.GreaterThan(g.MaxAmountAtomic) {
+	if p.Required.AmountAtomic.IsPositive() && p.Required.AmountAtomic.GreaterThan(g.MaxAmountAtomic) {
 		return liqerr.New(liqerr.CodeInsufficientLiquidity,
 			"liquidity: plan amount %s exceeds MaxAmountAtomic %s",
 			p.Required.AmountAtomic.String(), g.MaxAmountAtomic.String())
@@ -167,17 +198,23 @@ func checkFundStep(s PlanStep, req Required, agent string, g *Guard) error {
 		return liqerr.New(liqerr.CodeInvalidQuery,
 			"liquidity: fund-moving step missing recipient (agent_self required)")
 	}
-	// Always refuse merchant as fund dest (pay_to required when hasFund).
-	if payTo := strings.TrimSpace(req.PayTo); payTo != "" && addrEqual(rec, payTo, req.ChainCAIP2) {
+	// Always refuse merchant as fund dest when pay_to is present.
+	chain := req.ChainCAIP2
+	if chain == "" {
+		chain = s.FromChainCAIP2
+	}
+	if chain == "" {
+		chain = s.ToChainCAIP2
+	}
+	if payTo := strings.TrimSpace(req.PayTo); payTo != "" && addrEqual(rec, payTo, chain) {
 		return liqerr.New(liqerr.CodeInvalidQuery,
 			"liquidity: refuse transfer to merchant pay_to — prepare funds agent_self only")
 	}
-	// agent is required when fund-moving (enforced by CheckPlan).
-	if agent == "" || !addrEqual(rec, agent, req.ChainCAIP2) {
+	if agent == "" || !addrEqual(rec, agent, chain) {
 		return liqerr.New(liqerr.CodeInvalidQuery,
 			"liquidity: step recipient must equal agent_address")
 	}
-	if g != nil && len(g.AllowedAgentAddresses) > 0 && !agentAddrAllowed(g.AllowedAgentAddresses, rec, req.ChainCAIP2) {
+	if g != nil && len(g.AllowedAgentAddresses) > 0 && !agentAddrAllowed(g.AllowedAgentAddresses, rec, chain) {
 		return liqerr.New(liqerr.CodeInvalidQuery,
 			"liquidity: step recipient not in AllowedAgentAddresses")
 	}

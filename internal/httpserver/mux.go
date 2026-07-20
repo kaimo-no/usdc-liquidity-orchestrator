@@ -22,6 +22,7 @@ func NewMux() http.Handler {
 	})
 	mux.HandleFunc("GET /v1/chains", handleChains)
 	mux.HandleFunc("POST /v1/plan", handlePlan)
+	mux.HandleFunc("POST /v1/consolidate", handleConsolidate)
 	return mux
 }
 
@@ -38,9 +39,11 @@ func handleChains(w http.ResponseWriter, _ *http.Request) {
 	reg := liquidity.ListChains()
 	out := make([]types.ChainInfo, 0, len(reg))
 	for _, c := range reg {
+		wallet, _ := liquidity.GatewayWalletAddress(c.CAIP2)
 		out = append(out, types.ChainInfo{
 			CAIP2: c.CAIP2, Name: c.Name, GatewayDomain: c.GatewayDomain,
 			USDC: c.USDC, GatewayOK: c.GatewayOK, CCTPOK: c.CCTPOK,
+			Testnet: c.Testnet, GatewayWallet: wallet,
 		})
 	}
 	writeJSON(w, http.StatusOK, types.ChainsResponse{Chains: out})
@@ -73,12 +76,7 @@ func handlePlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	wire := liquidity.PlanToWire(plan)
-	// Force dry stamps on the HTTP surface (never claim funded).
-	wire.DryRun = true
-	wire.Executed = false
-	wire.InventoryAsserted = true
-	wire.InventoryUnverified = true
+	wire := forceDryStamps(liquidity.PlanToWire(plan))
 
 	if req.Execute {
 		ex := liquidity.UnconfiguredExecutor{}
@@ -93,6 +91,50 @@ func handlePlan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, types.PlanResponse{Plan: wire})
+}
+
+func handleConsolidate(w http.ResponseWriter, r *http.Request) {
+	var req types.ConsolidateRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, liqerr.CodeInvalidQuery, "invalid JSON body")
+		return
+	}
+
+	inv, err := liquidity.InventoryFromWire(req.Inventory)
+	if err != nil {
+		writeCoded(w, err)
+		return
+	}
+	orch := liquidity.OrchestrationFromWire(req.Orchestration)
+
+	plan, err := liquidity.PlanConsolidate(inv, orch, nil)
+	if err != nil {
+		writeCoded(w, err)
+		return
+	}
+
+	wire := forceDryStamps(liquidity.PlanToWire(plan))
+
+	if req.Execute {
+		ex := liquidity.UnconfiguredExecutor{}
+		if _, err := ex.Execute(r.Context(), plan); err != nil {
+			writeJSON(w, http.StatusBadRequest, types.PlanResponse{
+				Plan:  wire,
+				Error: &types.APIError{Code: liqerr.CodeOf(err), Message: err.Error()},
+			})
+			return
+		}
+	}
+
+	writeJSON(w, http.StatusOK, types.PlanResponse{Plan: wire})
+}
+
+func forceDryStamps(wire types.Plan) types.Plan {
+	wire.DryRun = true
+	wire.Executed = false
+	wire.InventoryAsserted = true
+	wire.InventoryUnverified = true
+	return wire
 }
 
 func writeCoded(w http.ResponseWriter, err error) {
