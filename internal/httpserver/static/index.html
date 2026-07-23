@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>USDC Liquidity Orchestrator</title>
+  <style>
+    :root {
+      --bg: #0b0f14;
+      --panel: #121821;
+      --panel2: #18212c;
+      --border: #243041;
+      --text: #e7eef7;
+      --muted: #8b9bb0;
+      --accent: #3d9cf0;
+      --accent2: #2dd4a8;
+      --warn: #f0b429;
+      --err: #f07178;
+      --ok: #7fd99a;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --sans: "Segoe UI", system-ui, -apple-system, sans-serif;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: var(--sans);
+      background:
+        radial-gradient(1200px 600px at 10% -10%, #1a2a40 0%, transparent 55%),
+        radial-gradient(900px 500px at 100% 0%, #132a28 0%, transparent 50%),
+        var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 18px 22px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(12, 16, 22, 0.85);
+      backdrop-filter: blur(8px);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    header h1 {
+      margin: 0;
+      font-size: 1.05rem;
+      font-weight: 650;
+      letter-spacing: 0.01em;
+    }
+    header h1 span { color: var(--accent2); font-weight: 500; }
+    .meta {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--muted);
+      display: inline-block;
+    }
+    .dot.ok { background: var(--ok); box-shadow: 0 0 8px rgba(127, 217, 154, 0.6); }
+    .dot.bad { background: var(--err); }
+    main {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 20px;
+      display: grid;
+      gap: 16px;
+    }
+    .banner {
+      background: #1a2430;
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--warn);
+      border-radius: var(--radius);
+      padding: 12px 14px;
+      color: var(--muted);
+      font-size: 0.9rem;
+      line-height: 1.45;
+    }
+    .banner strong { color: var(--warn); }
+    .tabs {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .tab {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      padding: 8px 14px;
+      border-radius: 999px;
+      cursor: pointer;
+      font: inherit;
+    }
+    .tab.active {
+      color: var(--text);
+      border-color: var(--accent);
+      background: #152233;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 16px;
+    }
+    @media (max-width: 920px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+    }
+    .panel h2 {
+      margin: 0 0 12px;
+      font-size: 0.95rem;
+      font-weight: 600;
+    }
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    @media (max-width: 640px) {
+      .row { grid-template-columns: 1fr; }
+    }
+    label {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      font-size: 0.78rem;
+      color: var(--muted);
+      margin-bottom: 10px;
+    }
+    label.full { grid-column: 1 / -1; }
+    input, select, textarea {
+      font: inherit;
+      font-family: var(--mono);
+      font-size: 0.82rem;
+      color: var(--text);
+      background: var(--panel2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 9px 10px;
+      outline: none;
+      width: 100%;
+    }
+    input:focus, select:focus, textarea:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(61, 156, 240, 0.15);
+    }
+    textarea { min-height: 120px; resize: vertical; }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    button {
+      font: inherit;
+      cursor: pointer;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--panel2);
+      color: var(--text);
+      padding: 9px 14px;
+    }
+    button.primary {
+      background: linear-gradient(180deg, #3d9cf0, #2b7fc7);
+      border-color: #2b7fc7;
+      color: #fff;
+      font-weight: 600;
+    }
+    button.ghost { color: var(--muted); }
+    button:disabled { opacity: 0.55; cursor: not-allowed; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.8rem;
+    }
+    th, td {
+      text-align: left;
+      padding: 8px 6px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    th { color: var(--muted); font-weight: 500; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; }
+    .bal-row td { padding-top: 6px; padding-bottom: 6px; }
+    .bal-row input, .bal-row select { min-width: 0; }
+    .bal-actions { white-space: nowrap; }
+    .summary {
+      display: grid;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .pill-row { display: flex; flex-wrap: wrap; gap: 6px; }
+    .pill {
+      font-size: 0.75rem;
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--panel2);
+      color: var(--muted);
+      font-family: var(--mono);
+    }
+    .pill.action { color: var(--accent2); border-color: #245a4c; }
+    .pill.err { color: var(--err); border-color: #5a2a30; }
+    .pill.ok { color: var(--ok); border-color: #2a4a35; }
+    pre {
+      margin: 0;
+      background: #0a0e13;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      overflow: auto;
+      max-height: 58vh;
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      line-height: 1.45;
+      color: #c9d7e8;
+    }
+    .steps {
+      display: grid;
+      gap: 8px;
+      margin: 10px 0 14px;
+    }
+    .step {
+      border: 1px solid var(--border);
+      background: var(--panel2);
+      border-radius: 8px;
+      padding: 10px;
+      font-size: 0.82rem;
+    }
+    .step code {
+      font-family: var(--mono);
+      color: var(--accent);
+      font-size: 0.78rem;
+    }
+    .muted { color: var(--muted); }
+    .hidden { display: none !important; }
+    footer {
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.75rem;
+      padding: 8px 0 24px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>USDC Liquidity Orchestrator <span>· plan-only UI</span></h1>
+    <div class="meta">
+      <span id="healthDot" class="dot" title="health"></span>
+      <span id="healthLabel">checking…</span>
+      <span>·</span>
+      <span id="apiBaseLabel"></span>
+    </div>
+  </header>
+
+  <main>
+    <div class="banner">
+      <strong>Non-custodial dry plans only.</strong>
+      Inventory is client-asserted (not verified on-chain). Never paste private keys.
+      Fund steps always target <code>agent_self</code> — merchant <code>pay_to</code> is claim metadata, not a bridge destination.
+      <code>execute=true</code> fails closed until a live Circle executor is configured.
+    </div>
+
+    <div class="tabs" role="tablist">
+      <button type="button" class="tab active" data-tab="plan">Plan</button>
+      <button type="button" class="tab" data-tab="consolidate">Consolidate</button>
+      <button type="button" class="tab" data-tab="chains">Chains</button>
+    </div>
+
+    <div class="grid">
+      <section class="panel" id="formPanel">
+        <h2 id="formTitle">POST /v1/plan</h2>
+
+        <div id="sectionInventory">
+          <label class="full">Agent address (your wallet / agent_self)
+            <input id="agentAddress" spellcheck="false" placeholder="0x…" value="0xAgentSelf000000000000000000000000000001" />
+          </label>
+
+          <h2 style="margin-top:6px">Balances (asserted)</h2>
+          <div style="overflow-x:auto">
+            <table>
+              <thead>
+                <tr>
+                  <th>Location</th>
+                  <th>Chain CAIP-2</th>
+                  <th>Asset</th>
+                  <th>Amount (atomic)</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="balancesBody"></tbody>
+            </table>
+          </div>
+          <div class="actions">
+            <button type="button" id="addBalance" class="ghost">+ balance row</button>
+          </div>
+        </div>
+
+        <div id="sectionRequired">
+          <h2 style="margin-top:14px">Required (merchant claim)</h2>
+          <div class="row">
+            <label>Target chain CAIP-2
+              <input id="reqChain" spellcheck="false" value="eip155:5042002" list="chainList" />
+            </label>
+            <label>Asset (USDC)
+              <input id="reqAsset" spellcheck="false" value="0x3600000000000000000000000000000000000000" />
+            </label>
+            <label>Amount atomic
+              <input id="reqAmount" spellcheck="false" value="42000000" />
+            </label>
+            <label>Protocol
+              <input id="reqProtocol" spellcheck="false" value="x402" />
+            </label>
+            <label class="full">pay_to (merchant — must ≠ agent_address)
+              <input id="reqPayTo" spellcheck="false" value="0xMerchantOnArc000000000000000000000001" />
+            </label>
+          </div>
+        </div>
+
+        <div id="sectionOrch">
+          <h2 style="margin-top:8px">Orchestration</h2>
+          <div class="row">
+            <label>prefer_rail
+              <select id="preferRail">
+                <option value="circle_gateway" selected>circle_gateway</option>
+                <option value="auto">auto</option>
+                <option value="cctp_fast">cctp_fast</option>
+              </select>
+            </label>
+            <label>allow_circle_gateway
+              <select id="allowGateway">
+                <option value="true" selected>true</option>
+                <option value="false">false</option>
+              </select>
+            </label>
+            <label class="full">source_chain_caip2s (optional, comma-separated allowlist)
+              <input id="sourceChains" spellcheck="false" placeholder="eip155:84532, eip155:5042002" />
+            </label>
+          </div>
+        </div>
+
+        <div id="sectionFee" class="row">
+          <label>fee_bps (optional)
+            <input id="feeBps" type="number" min="0" value="0" />
+          </label>
+          <label>fee_recipient
+            <input id="feeRecipient" spellcheck="false" placeholder="0x…" />
+          </label>
+        </div>
+
+        <label style="flex-direction:row;align-items:center;gap:8px;margin-top:4px">
+          <input id="execute" type="checkbox" style="width:auto" />
+          <span class="muted">execute (will fail closed today — useful to see error code)</span>
+        </label>
+
+        <div class="actions">
+          <button type="button" class="primary" id="submitBtn">Run plan</button>
+          <button type="button" class="ghost" id="loadExample">Load Arc example</button>
+          <button type="button" class="ghost" id="loadFragmented">Load Base fragmented</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Response</h2>
+        <div id="summary" class="summary muted">Submit a request to see the plan.</div>
+        <div id="steps" class="steps"></div>
+        <pre id="rawOut">{}</pre>
+      </section>
+    </div>
+
+    <section class="panel hidden" id="chainsPanel">
+      <h2>GET /v1/chains</h2>
+      <div class="actions" style="margin-bottom:10px">
+        <button type="button" class="primary" id="refreshChains">Refresh</button>
+      </div>
+      <div style="overflow-x:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>CAIP-2</th>
+              <th>USDC</th>
+              <th>Gateway</th>
+              <th>CCTP</th>
+              <th>Testnet</th>
+              <th>Gateway wallet</th>
+            </tr>
+          </thead>
+          <tbody id="chainsBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <footer>Same origin as the API · inventory never logged server-side</footer>
+  <datalist id="chainList"></datalist>
+
+  <script>
+    const API = ""; // same origin
+    const $ = (id) => document.getElementById(id);
+
+    const EXAMPLES = {
+      arc: {
+        agent: "0xAgentSelf000000000000000000000000000001",
+        balances: [
+          { location: "circle_gateway", chain_caip2: "", asset: "USDC", amount_atomic: "100000000" },
+          { location: "native", chain_caip2: "eip155:5042002", asset: "0x3600000000000000000000000000000000000000", amount_atomic: "20000000" },
+        ],
+        required: {
+          protocol: "x402",
+          chain_caip2: "eip155:5042002",
+          asset: "0x3600000000000000000000000000000000000000",
+          amount_atomic: "42000000",
+          pay_to: "0xMerchantOnArc000000000000000000000001",
+        },
+        prefer_rail: "circle_gateway",
+        fee_bps: 25,
+        fee_recipient: "0xKaimoFee000000000000000000000000000001",
+      },
+      fragmented: {
+        agent: "0xAgentSelf000000000000000000000000000001",
+        balances: [
+          { location: "native", chain_caip2: "eip155:42161", asset: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", amount_atomic: "30000000" },
+          { location: "native", chain_caip2: "eip155:8453", asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", amount_atomic: "20000000" },
+        ],
+        required: {
+          protocol: "x402",
+          chain_caip2: "eip155:8453",
+          asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          amount_atomic: "42000000",
+          pay_to: "0xMerchantOnBase0000000000000000000001",
+        },
+        prefer_rail: "auto",
+        fee_bps: 0,
+        fee_recipient: "",
+      },
+      consolidate: {
+        agent: "0xAgentSelf000000000000000000000000000001",
+        balances: [
+          { location: "native", chain_caip2: "eip155:84532", asset: "0x036CbD53842c5426634e7929541eC2318f3dCF7e", amount_atomic: "3000000" },
+          { location: "native", chain_caip2: "eip155:5042002", asset: "0x3600000000000000000000000000000000000000", amount_atomic: "1000000" },
+        ],
+      },
+    };
+
+    let activeTab = "plan";
+    let chainCache = [];
+
+    function setHealth(ok, detail) {
+      $("healthDot").className = "dot " + (ok ? "ok" : "bad");
+      $("healthLabel").textContent = detail;
+    }
+
+    async function pingHealth() {
+      try {
+        const r = await fetch(API + "/healthz");
+        const t = (await r.text()).trim();
+        setHealth(r.ok, r.ok ? `healthz ${t}` : `healthz HTTP ${r.status}`);
+      } catch (e) {
+        setHealth(false, "unreachable");
+      }
+    }
+
+    function balanceRow(b = {}) {
+      const tr = document.createElement("tr");
+      tr.className = "bal-row";
+      tr.innerHTML = `
+        <td>
+          <select data-k="location">
+            <option value="native">native</option>
+            <option value="circle_gateway">circle_gateway</option>
+          </select>
+        </td>
+        <td><input data-k="chain_caip2" spellcheck="false" placeholder="eip155:…" list="chainList" /></td>
+        <td><input data-k="asset" spellcheck="false" placeholder="0x… or USDC" /></td>
+        <td><input data-k="amount_atomic" spellcheck="false" placeholder="42000000" /></td>
+        <td class="bal-actions"><button type="button" class="ghost" data-rm title="Remove">✕</button></td>`;
+      tr.querySelector('[data-k="location"]').value = b.location || "native";
+      tr.querySelector('[data-k="chain_caip2"]').value = b.chain_caip2 || "";
+      tr.querySelector('[data-k="asset"]').value = b.asset || "";
+      tr.querySelector('[data-k="amount_atomic"]').value = b.amount_atomic || "";
+      tr.querySelector("[data-rm]").onclick = () => tr.remove();
+      return tr;
+    }
+
+    function readBalances() {
+      return [...$("balancesBody").querySelectorAll("tr")].map((tr) => {
+        const get = (k) => tr.querySelector(`[data-k="${k}"]`).value.trim();
+        const row = {
+          location: get("location"),
+          amount_atomic: get("amount_atomic"),
+        };
+        const chain = get("chain_caip2");
+        const asset = get("asset");
+        if (chain) row.chain_caip2 = chain;
+        if (asset) row.asset = asset;
+        return row;
+      }).filter((b) => b.amount_atomic);
+    }
+
+    function setBalances(rows) {
+      const body = $("balancesBody");
+      body.innerHTML = "";
+      (rows || []).forEach((b) => body.appendChild(balanceRow(b)));
+      if (!rows || !rows.length) body.appendChild(balanceRow());
+    }
+
+    function applyExample(ex, isConsolidate) {
+      $("agentAddress").value = ex.agent;
+      setBalances(ex.balances);
+      if (!isConsolidate && ex.required) {
+        $("reqChain").value = ex.required.chain_caip2;
+        $("reqAsset").value = ex.required.asset;
+        $("reqAmount").value = ex.required.amount_atomic;
+        $("reqProtocol").value = ex.required.protocol || "x402";
+        $("reqPayTo").value = ex.required.pay_to;
+        $("preferRail").value = ex.prefer_rail || "auto";
+        $("feeBps").value = ex.fee_bps || 0;
+        $("feeRecipient").value = ex.fee_recipient || "";
+      }
+    }
+
+    function buildOrchestration() {
+      const orch = {
+        allow_circle_gateway: $("allowGateway").value === "true",
+      };
+      if (activeTab === "plan") {
+        const target = $("reqChain").value.trim();
+        if (target) orch.target_chain_caip2 = target;
+        const pref = $("preferRail").value;
+        if (pref && pref !== "auto") orch.prefer_rail = pref;
+      }
+      const sources = $("sourceChains").value
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (sources.length) orch.source_chain_caip2s = sources;
+      return orch;
+    }
+
+    function buildPlanBody() {
+      const body = {
+        required: {
+          protocol: $("reqProtocol").value.trim() || "x402",
+          chain_caip2: $("reqChain").value.trim(),
+          asset: $("reqAsset").value.trim(),
+          amount_atomic: $("reqAmount").value.trim(),
+          pay_to: $("reqPayTo").value.trim(),
+          pay_to_role: "merchant",
+          source: "probe",
+        },
+        inventory: {
+          agent_address: $("agentAddress").value.trim(),
+          balances: readBalances(),
+        },
+        orchestration: buildOrchestration(),
+        execute: $("execute").checked,
+      };
+      const bps = Number($("feeBps").value || 0);
+      const feeTo = $("feeRecipient").value.trim();
+      if (bps > 0) body.fee_bps = bps;
+      if (feeTo) body.fee_recipient = feeTo;
+      return body;
+    }
+
+    function buildConsolidateBody() {
+      return {
+        inventory: {
+          agent_address: $("agentAddress").value.trim(),
+          balances: readBalances(),
+        },
+        orchestration: buildOrchestration(),
+        execute: $("execute").checked,
+      };
+    }
+
+    function renderResponse(data, httpStatus) {
+      $("rawOut").textContent = JSON.stringify(data, null, 2);
+      const plan = data.plan || {};
+      const err = data.error;
+      const pills = [];
+      if (httpStatus) pills.push(`<span class="pill">HTTP ${httpStatus}</span>`);
+      if (plan.action) pills.push(`<span class="pill action">action=${esc(plan.action)}</span>`);
+      if (plan.dry_run) pills.push(`<span class="pill ok">dry_run</span>`);
+      if (plan.executed === false) pills.push(`<span class="pill">executed=false</span>`);
+      if (plan.inventory_unverified) pills.push(`<span class="pill">inventory_unverified</span>`);
+      if (err) pills.push(`<span class="pill err">${esc(err.code || "error")}: ${esc(err.message || "")}</span>`);
+      if (plan.reason) pills.push(`<span class="pill">${esc(plan.reason)}</span>`);
+      $("summary").innerHTML = `<div class="pill-row">${pills.join("") || '<span class="muted">No plan envelope</span>'}</div>`;
+
+      const stepsEl = $("steps");
+      stepsEl.innerHTML = "";
+      const steps = plan.steps || [];
+      if (!steps.length) {
+        stepsEl.innerHTML = `<div class="muted">${plan.action ? "No steps (e.g. noop / insufficient)." : ""}</div>`;
+        return;
+      }
+      steps.forEach((s, i) => {
+        const div = document.createElement("div");
+        div.className = "step";
+        const prep = (s.prepare_calls || []).length
+          ? `<div class="muted" style="margin-top:6px">${s.prepare_calls.length} prepare_call(s)</div>`
+          : "";
+        div.innerHTML = `
+          <div><strong>#${i + 1}</strong> <code>${esc(s.kind || "")}</code>
+            ${s.amount_atomic ? ` · ${esc(s.amount_atomic)} atomic` : ""}
+          </div>
+          <div class="muted" style="margin-top:4px">
+            ${s.from_chain_caip2 ? esc(s.from_chain_caip2) : "—"}
+            → ${s.to_chain_caip2 ? esc(s.to_chain_caip2) : "—"}
+            ${s.recipient_role ? ` · ${esc(s.recipient_role)}` : ""}
+            ${s.recipient ? ` · ${esc(s.recipient)}` : ""}
+          </div>${prep}`;
+        stepsEl.appendChild(div);
+      });
+    }
+
+    function esc(s) {
+      return String(s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    async function submit() {
+      const btn = $("submitBtn");
+      btn.disabled = true;
+      try {
+        const isCons = activeTab === "consolidate";
+        const path = isCons ? "/v1/consolidate" : "/v1/plan";
+        const body = isCons ? buildConsolidateBody() : buildPlanBody();
+        const r = await fetch(API + path, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        let data;
+        try {
+          data = await r.json();
+        } catch {
+          data = { error: { code: "client", message: "non-JSON response" } };
+        }
+        renderResponse(data, r.status);
+      } catch (e) {
+        renderResponse({ error: { code: "client", message: String(e.message || e) } }, 0);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function loadChains() {
+      const r = await fetch(API + "/v1/chains");
+      const data = await r.json();
+      chainCache = data.chains || [];
+      const dl = $("chainList");
+      dl.innerHTML = chainCache.map((c) => `<option value="${esc(c.chain_caip2)}">${esc(c.name)}</option>`).join("");
+      const body = $("chainsBody");
+      body.innerHTML = chainCache.map((c) => `
+        <tr>
+          <td>${esc(c.name)}</td>
+          <td><code>${esc(c.chain_caip2)}</code></td>
+          <td><code>${esc(c.usdc || "")}</code></td>
+          <td>${c.gateway_ok ? "yes" : "no"} <span class="muted">d${c.gateway_domain ?? ""}</span></td>
+          <td>${c.cctp_ok ? "yes" : "no"}</td>
+          <td>${c.testnet ? "testnet" : "mainnet"}</td>
+          <td><code>${esc(c.gateway_wallet || "")}</code></td>
+        </tr>`).join("");
+    }
+
+    function setTab(name) {
+      activeTab = name;
+      document.querySelectorAll(".tab").forEach((t) => {
+        t.classList.toggle("active", t.dataset.tab === name);
+      });
+      const form = $("formPanel");
+      const chains = $("chainsPanel");
+      const isChains = name === "chains";
+      form.classList.toggle("hidden", isChains);
+      chains.classList.toggle("hidden", !isChains);
+      // keep response panel visible for plan/consolidate
+      form.parentElement.classList.toggle("hidden", isChains);
+
+      if (name === "plan") {
+        $("formTitle").textContent = "POST /v1/plan";
+        $("submitBtn").textContent = "Run plan";
+        $("sectionRequired").classList.remove("hidden");
+        $("sectionFee").classList.remove("hidden");
+        $("sectionOrch").classList.remove("hidden");
+        $("loadExample").classList.remove("hidden");
+        $("loadFragmented").classList.remove("hidden");
+      } else if (name === "consolidate") {
+        $("formTitle").textContent = "POST /v1/consolidate";
+        $("submitBtn").textContent = "Run consolidate";
+        $("sectionRequired").classList.add("hidden");
+        $("sectionFee").classList.add("hidden");
+        $("sectionOrch").classList.remove("hidden");
+        $("loadExample").classList.remove("hidden");
+        $("loadFragmented").classList.add("hidden");
+        applyExample(EXAMPLES.consolidate, true);
+      } else if (name === "chains") {
+        loadChains().catch((e) => {
+          $("chainsBody").innerHTML = `<tr><td colspan="7" class="muted">${esc(e.message || e)}</td></tr>`;
+        });
+      }
+    }
+
+    // Wire events
+    document.querySelectorAll(".tab").forEach((t) => {
+      t.addEventListener("click", () => setTab(t.dataset.tab));
+    });
+    $("addBalance").onclick = () => $("balancesBody").appendChild(balanceRow());
+    $("submitBtn").onclick = submit;
+    $("loadExample").onclick = () => {
+      if (activeTab === "consolidate") applyExample(EXAMPLES.consolidate, true);
+      else applyExample(EXAMPLES.arc, false);
+    };
+    $("loadFragmented").onclick = () => applyExample(EXAMPLES.fragmented, false);
+    $("refreshChains").onclick = () => loadChains();
+
+    // Chain select helper: fill USDC when picking target from datalist blur
+    $("reqChain").addEventListener("change", () => {
+      const c = chainCache.find((x) => x.chain_caip2 === $("reqChain").value.trim());
+      if (c && c.usdc) $("reqAsset").value = c.usdc;
+    });
+
+    $("apiBaseLabel").textContent = location.origin || "same origin";
+    applyExample(EXAMPLES.arc, false);
+    pingHealth();
+    loadChains().catch(() => {});
+    setInterval(pingHealth, 15000);
+  </script>
+</body>
+</html>

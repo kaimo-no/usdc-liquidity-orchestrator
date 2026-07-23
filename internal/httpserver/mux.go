@@ -1,9 +1,12 @@
 // Package httpserver is the thin HTTP surface over pkg/liquidity.
-// cmd/server wires ListenAndServe; black-box tests use NewMux.
+// cmd/server wires ListenAndServe; black-box tests use NewMux / NewMuxWithOptions.
 package httpserver
 
 import (
+	"embed"
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"log"
 	"net/http"
 	"time"
@@ -13,17 +16,50 @@ import (
 	"github.com/kaimo-no/usdc-liquidity-orchestrator/pkg/types"
 )
 
-// NewMux returns the service routes (no logging wrapper).
+//go:embed static/*
+var staticEmbed embed.FS
+
+// MuxOptions configures optional execute wiring. Zero value is plan-only default.
+type MuxOptions struct {
+	// Executor runs plans when request execute=true. Nil → UnconfiguredExecutor.
+	Executor liquidity.Executor
+}
+
+// NewMux returns the service routes (plan-only default: UnconfiguredExecutor).
+// Serves a small plan-only UI at GET / (embedded static/).
 func NewMux() http.Handler {
+	return NewMuxWithOptions(MuxOptions{})
+}
+
+// NewMuxWithOptions returns routes with an optional live Executor.
+func NewMuxWithOptions(opts MuxOptions) http.Handler {
+	ex := opts.Executor
+	if ex == nil {
+		ex = liquidity.UnconfiguredExecutor{}
+	}
+	s := &server{ex: ex}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok\n"))
 	})
 	mux.HandleFunc("GET /v1/chains", handleChains)
-	mux.HandleFunc("POST /v1/plan", handlePlan)
-	mux.HandleFunc("POST /v1/consolidate", handleConsolidate)
+	mux.HandleFunc("POST /v1/plan", s.handlePlan)
+	mux.HandleFunc("POST /v1/consolidate", s.handleConsolidate)
+
+	staticRoot, err := fs.Sub(staticEmbed, "static")
+	if err != nil {
+		// Embed layout bug — fail closed at process start rather than silent 404 UI.
+		panic("httpserver: embed static/: " + err.Error())
+	}
+	// GET / and static assets; more specific /v1/* and /healthz win on ServeMux.
+	mux.Handle("GET /", http.FileServer(http.FS(staticRoot)))
 	return mux
+}
+
+type server struct {
+	ex liquidity.Executor
 }
 
 // LogRequests wraps next without logging request bodies (wallet inventory).
@@ -49,7 +85,7 @@ func handleChains(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, types.ChainsResponse{Chains: out})
 }
 
-func handlePlan(w http.ResponseWriter, r *http.Request) {
+func (s *server) handlePlan(w http.ResponseWriter, r *http.Request) {
 	var req types.PlanRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, liqerr.CodeInvalidQuery, "invalid JSON body")
@@ -76,24 +112,10 @@ func handlePlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	wire := forceDryStamps(liquidity.PlanToWire(plan))
-
-	if req.Execute {
-		ex := liquidity.UnconfiguredExecutor{}
-		if _, err := ex.Execute(r.Context(), plan); err != nil {
-			// Still return the dry plan + error so agents can inspect steps.
-			writeJSON(w, http.StatusBadRequest, types.PlanResponse{
-				Plan:  wire,
-				Error: &types.APIError{Code: liqerr.CodeOf(err), Message: err.Error()},
-			})
-			return
-		}
-	}
-
-	writeJSON(w, http.StatusOK, types.PlanResponse{Plan: wire})
+	s.stampAndWrite(w, r, plan, req.Execute)
 }
 
-func handleConsolidate(w http.ResponseWriter, r *http.Request) {
+func (s *server) handleConsolidate(w http.ResponseWriter, r *http.Request) {
 	var req types.ConsolidateRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, liqerr.CodeInvalidQuery, "invalid JSON body")
@@ -113,20 +135,88 @@ func handleConsolidate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	wire := forceDryStamps(liquidity.PlanToWire(plan))
+	s.stampAndWrite(w, r, plan, req.Execute)
+}
 
-	if req.Execute {
-		ex := liquidity.UnconfiguredExecutor{}
-		if _, err := ex.Execute(r.Context(), plan); err != nil {
-			writeJSON(w, http.StatusBadRequest, types.PlanResponse{
-				Plan:  wire,
-				Error: &types.APIError{Code: liqerr.CodeOf(err), Message: err.Error()},
-			})
-			return
-		}
+func (s *server) stampAndWrite(w http.ResponseWriter, r *http.Request, plan liquidity.Plan, execute bool) {
+	wire := liquidity.PlanToWire(plan)
+	var receipt liquidity.Receipt
+	var execErr error
+	if execute {
+		receipt, execErr = s.ex.Execute(r.Context(), plan)
+	}
+	resp, status := stampPlanResponse(wire, execute, receipt, execErr)
+	writeJSON(w, status, resp)
+}
+
+// stampPlanResponse applies dry/execute stamps and receipt according to design:
+//
+//	execute=false → forceDry, no receipt, 200
+//	success all → dry_run=false executed=true + receipt hashes, 200
+//	partial (hashes+err) → dry_run=false executed=false + receipt + error, 400
+//	fail zero hashes → forceDry + error, 400
+func stampPlanResponse(wire types.Plan, execute bool, receipt liquidity.Receipt, execErr error) (types.PlanResponse, int) {
+	if !execute {
+		return types.PlanResponse{Plan: forceDryStamps(wire)}, http.StatusOK
 	}
 
-	writeJSON(w, http.StatusOK, types.PlanResponse{Plan: wire})
+	hashes := append([]string(nil), receipt.TxHashes...)
+	apiErr := sanitizeAPIError(execErr)
+
+	if execErr == nil {
+		wire.DryRun = false
+		wire.Executed = true
+		wire.InventoryAsserted = true
+		wire.InventoryUnverified = true
+		resp := types.PlanResponse{Plan: wire}
+		if len(hashes) > 0 {
+			resp.Receipt = &types.ExecuteReceipt{TxHashes: hashes}
+		}
+		return resp, http.StatusOK
+	}
+
+	if len(hashes) > 0 {
+		// Partial: some txs landed; never claim full success.
+		wire.DryRun = false
+		wire.Executed = false
+		wire.InventoryAsserted = true
+		wire.InventoryUnverified = true
+		return types.PlanResponse{
+			Plan:    wire,
+			Receipt: &types.ExecuteReceipt{TxHashes: hashes},
+			Error:   apiErr,
+		}, http.StatusBadRequest
+	}
+
+	// Zero hashes: force dry stamps.
+	return types.PlanResponse{
+		Plan:  forceDryStamps(wire),
+		Error: apiErr,
+	}, http.StatusBadRequest
+}
+
+// sanitizeAPIError maps execute errors to stable code + fixed Message (no raw RPC).
+func sanitizeAPIError(err error) *types.APIError {
+	if err == nil {
+		return nil
+	}
+	var e *liqerr.Error
+	if errors.As(err, &e) && e != nil {
+		code := e.Code
+		if code == "" {
+			code = liqerr.CodeLiquidityRailUnavailable
+		}
+		msg := e.Message
+		if msg == "" {
+			msg = "execute failed"
+		}
+		return &types.APIError{Code: code, Message: msg}
+	}
+	code := liqerr.CodeOf(err)
+	if code == "" {
+		code = liqerr.CodeLiquidityRailUnavailable
+	}
+	return &types.APIError{Code: code, Message: "execute failed"}
 }
 
 func forceDryStamps(wire types.Plan) types.Plan {
@@ -142,7 +232,12 @@ func writeCoded(w http.ResponseWriter, err error) {
 	if code == "" {
 		code = liqerr.CodeInvalidQuery
 	}
-	writeErr(w, http.StatusBadRequest, code, err.Error())
+	msg := err.Error()
+	var e *liqerr.Error
+	if errors.As(err, &e) && e != nil && e.Message != "" {
+		msg = e.Message
+	}
+	writeErr(w, http.StatusBadRequest, code, msg)
 }
 
 func writeErr(w http.ResponseWriter, status int, code, msg string) {

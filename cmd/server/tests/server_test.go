@@ -2,6 +2,7 @@ package server_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -12,8 +13,19 @@ import (
 
 	"github.com/kaimo-no/usdc-liquidity-orchestrator/internal/httpserver"
 	liqerr "github.com/kaimo-no/usdc-liquidity-orchestrator/pkg/errors"
+	"github.com/kaimo-no/usdc-liquidity-orchestrator/pkg/liquidity"
 	"github.com/kaimo-no/usdc-liquidity-orchestrator/pkg/types"
 )
+
+// stubExecutor is a test double for stampPlanResponse matrix cases.
+type stubExecutor struct {
+	receipt liquidity.Receipt
+	err     error
+}
+
+func (s stubExecutor) Execute(ctx context.Context, p liquidity.Plan) (liquidity.Receipt, error) {
+	return s.receipt, s.err
+}
 
 const (
 	arcCAIP2      = "eip155:5042002"
@@ -43,6 +55,29 @@ func TestGETChains_IncludesArc(t *testing.T) {
 		}
 	}
 	assert.True(t, found, "Arc Testnet eip155:5042002 must be registered")
+}
+
+func TestGETUI_IndexHTML(t *testing.T) {
+	mux := httpserver.NewMux()
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	mux.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	ct := rec.Header().Get("Content-Type")
+	assert.Contains(t, ct, "text/html")
+	body := rec.Body.String()
+	assert.Contains(t, body, "USDC Liquidity Orchestrator")
+	assert.Contains(t, body, "/v1/plan")
+}
+
+func TestGETHealthz_NotCapturedByStatic(t *testing.T) {
+	mux := httpserver.NewMux()
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	mux.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "ok\n", rec.Body.String())
 }
 
 func TestPOSTPlan_DryStampsForced(t *testing.T) {
@@ -170,17 +205,7 @@ func TestPOSTConsolidate_MultiChainDry(t *testing.T) {
 
 func TestPOSTConsolidate_ExecuteTrue_RailUnavailable(t *testing.T) {
 	mux := httpserver.NewMux()
-	body := map[string]any{
-		"inventory": map[string]any{
-			"agent_address": agentAddr,
-			"balances": []map[string]string{{
-				"chain_caip2": arcCAIP2, "asset": arcUSDC,
-				"amount_atomic": "1000", "location": "native",
-			}},
-		},
-		"execute": true,
-	}
-	payload, _ := json.Marshal(body)
+	payload := consolidateBody(true)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/consolidate", bytes.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
@@ -193,6 +218,112 @@ func TestPOSTConsolidate_ExecuteTrue_RailUnavailable(t *testing.T) {
 	assert.Equal(t, liqerr.CodeLiquidityRailUnavailable, resp.Error.Code)
 	assert.Equal(t, "circle_gateway_consolidate", resp.Plan.Action)
 	assert.True(t, resp.Plan.DryRun)
+	assert.Nil(t, resp.Receipt)
+}
+
+func TestStampMatrix_ExecuteFalse_ForceDry(t *testing.T) {
+	// Even with a succeeding executor, execute=false must force dry stamps and no receipt.
+	mux := httpserver.NewMuxWithOptions(httpserver.MuxOptions{
+		Executor: stubExecutor{receipt: liquidity.Receipt{TxHashes: []string{"0xshouldnot"}}},
+	})
+	payload := consolidateBody(false)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/consolidate", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp types.PlanResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Nil(t, resp.Error)
+	assert.True(t, resp.Plan.DryRun)
+	assert.False(t, resp.Plan.Executed)
+	assert.Nil(t, resp.Receipt)
+}
+
+func TestStampMatrix_ExecuteSuccess_ExecutedTrue(t *testing.T) {
+	mux := httpserver.NewMuxWithOptions(httpserver.MuxOptions{
+		Executor: stubExecutor{receipt: liquidity.Receipt{TxHashes: []string{"0xabc", "0xdef"}}},
+	})
+	payload := consolidateBody(true)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/consolidate", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp types.PlanResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Nil(t, resp.Error)
+	assert.False(t, resp.Plan.DryRun)
+	assert.True(t, resp.Plan.Executed)
+	require.NotNil(t, resp.Receipt)
+	assert.Equal(t, []string{"0xabc", "0xdef"}, resp.Receipt.TxHashes)
+}
+
+func TestStampMatrix_PartialFail_ExecutedFalseWithReceipt(t *testing.T) {
+	mux := httpserver.NewMuxWithOptions(httpserver.MuxOptions{
+		Executor: stubExecutor{
+			receipt: liquidity.Receipt{TxHashes: []string{"0xpartial"}},
+			err:     liqerr.New(liqerr.CodeLiquidityRailUnavailable, "deposit execute: broadcast failed"),
+		},
+	})
+	payload := consolidateBody(true)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/consolidate", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	var resp types.PlanResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NotNil(t, resp.Error)
+	assert.Equal(t, liqerr.CodeLiquidityRailUnavailable, resp.Error.Code)
+	assert.Equal(t, "deposit execute: broadcast failed", resp.Error.Message)
+	assert.False(t, resp.Plan.DryRun)
+	assert.False(t, resp.Plan.Executed)
+	require.NotNil(t, resp.Receipt)
+	assert.Equal(t, []string{"0xpartial"}, resp.Receipt.TxHashes)
+}
+
+func TestStampMatrix_FailZeroHashes_ForceDry(t *testing.T) {
+	mux := httpserver.NewMuxWithOptions(httpserver.MuxOptions{
+		Executor: stubExecutor{
+			err: liqerr.Wrap(liqerr.CodeLiquidityRailUnavailable,
+				assert.AnError, "deposit execute: broadcast failed"),
+		},
+	})
+	payload := consolidateBody(true)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/consolidate", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	var resp types.PlanResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NotNil(t, resp.Error)
+	// Sanitized: Message is fixed field, not wrapped cause string.
+	assert.Equal(t, "deposit execute: broadcast failed", resp.Error.Message)
+	assert.NotContains(t, resp.Error.Message, "assert.AnError")
+	assert.True(t, resp.Plan.DryRun)
+	assert.False(t, resp.Plan.Executed)
+	assert.Nil(t, resp.Receipt)
+}
+
+func consolidateBody(execute bool) []byte {
+	body := map[string]any{
+		"inventory": map[string]any{
+			"agent_address": agentAddr,
+			"balances": []map[string]string{{
+				"chain_caip2": arcCAIP2, "asset": arcUSDC,
+				"amount_atomic": "1000", "location": "native",
+			}},
+		},
+		"execute": execute,
+	}
+	b, _ := json.Marshal(body)
+	return b
 }
 
 func TestGETChains_TestnetAndGatewayWallet(t *testing.T) {

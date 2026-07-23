@@ -19,9 +19,9 @@ It does **not** take product custody and does **not** route funds through a plat
 |---|---|
 | L0 wire types (`pkg/types`) | shipped |
 | L1 pure planner (`pkg/liquidity`) | shipped — shortfall-only moves |
-| L2 execute | fail-closed `UnconfiguredExecutor` (no live Circle SDK yet) |
-| HTTP microservice (`cmd/server`) | `POST /v1/plan`, `POST /v1/consolidate`, `GET /v1/chains`, `GET /healthz` |
-| CLI demo (`cmd/demo`) | shortfall plan + consolidate worked examples |
+| L2 execute | fail-closed default; optional **testnet-only** deposit execute (`pkg/execonchain`) |
+| HTTP microservice (`cmd/server`) | `GET /` plan UI, `POST /v1/plan`, `POST /v1/consolidate`, `GET /v1/chains`, `GET /healthz` |
+| CLI demo (`cmd/demo`) | shortfall plan + consolidate (+ optional live testnet execute) |
 
 Related private monorepo: `kaimo-no/kaimo-go` (World B commerce router can call this as a library or HTTP service). **This repo has zero import of kaimo-go.**
 
@@ -30,6 +30,7 @@ Related private monorepo: `kaimo-no/kaimo-go` (World B commerce router can call 
 | Package | One-liner | Detail |
 |---|---|---|
 | `pkg/liquidity/` | Pure planner, guard, corridor matrix, executor stub | [pkg/liquidity/CLAUDE.md](pkg/liquidity/CLAUDE.md) |
+| `pkg/execonchain/` | Optional testnet-only Gateway deposit execute (go-ethereum) | [pkg/execonchain/CLAUDE.md](pkg/execonchain/CLAUDE.md) |
 | `pkg/types/` | Agent-facing wire JSON shapes | [pkg/types/CLAUDE.md](pkg/types/CLAUDE.md) |
 | `pkg/errors/` | Stable `.Code` strings (`insufficient_liquidity`, …) | [pkg/errors/CLAUDE.md](pkg/errors/CLAUDE.md) |
 | `cmd/server/` | Thin HTTP microservice | [cmd/server/CLAUDE.md](cmd/server/CLAUDE.md) |
@@ -44,7 +45,8 @@ Related private monorepo: `kaimo-no/kaimo-go` (World B commerce router can call 
 - **Empty `pay_to` fail-closed.** Never invent a merchant target.
 - **Amount override** only when probe amount is missing; cannot change payTo / network / asset.
 - **Dry plan stamps:** `dry_run=true`, `executed=false`, `inventory_asserted=true`, `inventory_unverified=true` until real execute lands.
-- **`UnconfiguredExecutor` never succeeds.** `execute=true` returns `liquidity_rail_unavailable` (or `insufficient_liquidity` for shortfall actions).
+- **`UnconfiguredExecutor` never succeeds.** Default `execute=true` returns `liquidity_rail_unavailable` (or `insufficient_liquidity` for shortfall actions).
+- **Optional testnet deposit execute** (`pkg/execonchain.DepositExecutor`): dual-gated env; **consolidate deposits only**; signs **re-derived** `BuildDepositPrepareCalls` only; mainnet RPC keys refused; loopback `LISTEN_ADDR` required for HTTP.
 - **Consolidate:** `PlanConsolidate` / `POST /v1/consolidate` — full-balance Gateway deposits, no pay_to/fee; deposit steps may include advisory unsigned `prepare_calls`.
 - **Guard dual predicates:** withdraw/cctp need merchant `pay_to`; deposit-only may have empty pay_to.
 - **Rail naming:** `circle_gateway_*` / `cctp_fast` — never bare `gateway` (avoids MoR / HTTP-gateway confusion). Bare inventory location `"gateway"` is ignored as invalid.
@@ -61,8 +63,17 @@ Related private monorepo: `kaimo-no/kaimo-go` (World B commerce router can call 
 | Var | Default | Purpose |
 |---|---|---|
 | `LISTEN_ADDR` | `:8088` | HTTP bind for `cmd/server` |
+| `ENABLE_TESTNET_EXECUTE` | unset | Set `1` to enable optional testnet deposit execute (dual gate) |
+| `AGENT_PRIVATE_KEY` | unset | Hex ECDSA key for deposit txs (never log; never commit) |
+| `RPC_URL_BASE_SEPOLIA` | unset | Base Sepolia JSON-RPC → `eip155:84532` |
+| `RPC_URL_ARBITRUM_SEPOLIA` | unset | Arbitrum Sepolia JSON-RPC → `eip155:421614` |
+| `RPC_URL_ARC_TESTNET` | unset | Arc Testnet JSON-RPC → `eip155:5042002` |
+| `RPC_URL_SOLANA_DEVNET` | unset | Solana Devnet RPC (ops placeholder; **not** used by EVM DepositExecutor) |
+| `RPC_URLS_JSON` | unset | JSON object map CAIP-2 → RPC URL |
+| `RPC_URL_eip155_<id>` | unset | Alternate per-chain RPC (e.g. `RPC_URL_eip155_84532`) |
+| `MAX_AMOUNT_ATOMIC` | unset | Optional Guard max step/required amount (atomic units) |
 
-No production secrets are required for plan-only mode. Future live Circle SDK credentials (if added) must be client-side or server-side with explicit docs — never committed.
+Plan-only mode needs no secrets. Testnet execute also requires **loopback** `LISTEN_ADDR` (`127.0.0.1`, `::1`, or `localhost` — bare `:8088` is refused). Never commit keys; never log keys, balances, prepare calldata, or RPC URLs.
 
 ## Common commands
 
@@ -78,7 +89,7 @@ go vet ./...
 golangci-lint run
 
 go run ./cmd/demo
-go run ./cmd/server   # LISTEN_ADDR=:8088
+go run ./cmd/server   # LISTEN_ADDR=:8088 — UI at http://127.0.0.1:8088/
 bash examples/curl.sh
 
 docker compose up --build   # distroless cmd/server on :8088; see SETUP.md for IDE launch

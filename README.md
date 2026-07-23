@@ -9,7 +9,7 @@
 | Org | [`kaimo-no`](https://github.com/kaimo-no) |
 | Module | `github.com/kaimo-no/usdc-liquidity-orchestrator` |
 | License | Apache-2.0 |
-| Status | L0–L1 shipped · L2 execute fail-closed stub |
+| Status | L0–L1 shipped · L2 fail-closed default · optional testnet deposit execute |
 
 Docs for agents: **[`CLAUDE.md`](./CLAUDE.md)** · **[`AGENTS.md`](./AGENTS.md)** · **[`SETUP.md`](./SETUP.md)** · **[`OPS.md`](./OPS.md)**
 
@@ -34,7 +34,7 @@ git clone https://github.com/kaimo-no/usdc-liquidity-orchestrator.git
 cd usdc-liquidity-orchestrator
 go test ./...
 go run ./cmd/demo
-go run ./cmd/server   # :8088
+go run ./cmd/server   # :8088 — open http://127.0.0.1:8088/ for the plan UI
 bash examples/curl.sh
 
 # or containerized:
@@ -62,16 +62,17 @@ wire := liquidity.PlanToWire(plan)
 ## Architecture
 
 ```text
-pkg/liquidity  pure planner + Guard + UnconfiguredExecutor
-pkg/types      wire JSON
-pkg/errors     stable codes
-cmd/server     thin HTTP microservice
-cmd/demo       worked example
+pkg/liquidity    pure planner + Guard + UnconfiguredExecutor
+pkg/execonchain  optional testnet-only Gateway deposit execute
+pkg/types        wire JSON (+ optional ExecuteReceipt)
+pkg/errors       stable codes
+cmd/server       thin HTTP microservice
+cmd/demo         worked example (+ optional live testnet execute)
 ```
 
 Plan preference: `noop` → `circle_gateway_withdraw` → `circle_gateway_deposit_withdraw` → `cctp_fast` → `insufficient` / `corridor_unsupported` (override with `orchestration.prefer_rail`).
 
-`POST /v1/consolidate` plans action `circle_gateway_consolidate` (full native USDC → Gateway Wallet deposits; no merchant claim). Deposit steps may include advisory unsigned `prepare_calls` (approve + deposit).
+`POST /v1/consolidate` plans action `circle_gateway_consolidate` (full native USDC → Gateway Wallet deposits; no merchant claim). Deposit steps may include advisory unsigned `prepare_calls` (approve + deposit). With dual-gated env, `execute=true` may broadcast re-derived deposit txs on **testnets only** (see [`OPS.md`](./OPS.md)).
 
 Optional `fee_bps` + `fee_recipient` attach a kaimo orchestration fee settled **after** prepare (e.g. x402) — never a prepare fund-move destination.
 
@@ -81,7 +82,7 @@ Optional `fee_bps` + `fee_recipient` attach a kaimo orchestration fee settled **
 2. Empty `pay_to` → fail closed on withdraw/cctp (deposit-only consolidate may omit pay_to)  
 3. Amount override only when probe amount missing  
 4. Dry plan: `executed=false`, `dry_run=true`  
-5. Execute stub always errors  
+5. Default execute fails closed; live path is testnet deposit-only, signs re-derived calls only  
 6. Atomic `decimal.Decimal` (no float64, no GBP Round(2))  
 7. **Shortfall-only** rebalance (plan path); consolidate deposits full native balances  
 8. Rails named `circle_gateway_*` / `cctp_fast` (never bare `gateway`)  
@@ -124,6 +125,7 @@ PR rules: [`.github/pr-review-instructions.md`](./.github/pr-review-instructions
 | Path | Role | Detail |
 |---|---|---|
 | `pkg/liquidity/` | Planner | [CLAUDE.md](./pkg/liquidity/CLAUDE.md) |
+| `pkg/execonchain/` | Testnet deposit execute | [CLAUDE.md](./pkg/execonchain/CLAUDE.md) |
 | `pkg/types/` | Wire | [CLAUDE.md](./pkg/types/CLAUDE.md) |
 | `pkg/errors/` | Codes | [CLAUDE.md](./pkg/errors/CLAUDE.md) |
 | `cmd/server/` | HTTP | [CLAUDE.md](./cmd/server/CLAUDE.md) |
