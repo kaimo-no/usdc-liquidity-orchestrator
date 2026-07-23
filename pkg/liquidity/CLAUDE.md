@@ -18,7 +18,9 @@ Testnet-ready: multi-chain **consolidate** deposits + unsigned **prepare_calls**
 | `Guard` | MaxAmountAtomic + AllowedAgentAddresses; dual predicates (merchant claim vs fund-moving) |
 | `CheckAgent` | Agent allowlist without merchant Required |
 | `UnconfiguredExecutor` | Always errors after `CheckPlan` |
-| `Executor` | Interface for future Circle Gateway / CCTP live SDK |
+| `Executor` | Interface; live adapter is `pkg/execonchain.DepositExecutor` (testnet deposits) |
+| `BuildDepositPrepareCalls` | Pure re-derive of approve+deposit calls (execute must sign these only) |
+| `IsTestnetExecutableChain` | Registered GatewayOK testnet corridor |
 
 ## Invariants
 
@@ -40,10 +42,11 @@ Testnet-ready: multi-chain **consolidate** deposits + unsigned **prepare_calls**
 
 ## Known limitations
 
-- No live Circle SDK execute (Gateway Wallet addresses are non-secret constants only)
+- Default execute is fail-closed; optional live path is testnet Gateway **deposit** only (`pkg/execonchain`)
+- No Gateway withdraw / CCTP / mainnet execute in this package
 - Solana corridors unsupported
 - Inventory balances are client-asserted (`inventory_unverified=true`)
-- `prepare_calls` are server-generated advisory for agents (unsigned)
+- `prepare_calls` are server-generated advisory for agents (unsigned); live execute re-derives via `BuildDepositPrepareCalls`
 
 ## Tests
 

@@ -29,45 +29,43 @@ var (
 	selectorDeposit = []byte{0x47, 0xe7, 0xef, 0x24}
 )
 
-// attachDepositPrepareCalls fills approve+deposit prepare_calls for a deposit step.
-// Never mutates AmountAtomic or Recipient. To addresses are registry allowlisted.
-func attachDepositPrepareCalls(s *PlanStep) error {
-	if s == nil {
-		return nil
-	}
+// BuildDepositPrepareCalls re-derives unsigned approve+deposit calls for a deposit step.
+// Pure: does not mutate s. Non-deposit steps return (nil, nil).
+// Live execute must sign only re-derived calls, never client-supplied calldata.
+func BuildDepositPrepareCalls(s PlanStep) ([]PrepareCall, error) {
 	if strings.ToLower(strings.TrimSpace(s.Kind)) != StepKindCircleGatewayDeposit {
-		return nil
+		return nil, nil
 	}
 	chain := strings.TrimSpace(s.FromChainCAIP2)
 	if chain == "" {
-		return liqerr.New(liqerr.CodeInvalidQuery,
+		return nil, liqerr.New(liqerr.CodeInvalidQuery,
 			"liquidity: circle_gateway_deposit step missing from_chain_caip2 for prepare_calls")
 	}
 	usdc, ok := DefaultUSDC(chain)
 	if !ok {
-		return liqerr.New(liqerr.CodeInvalidQuery,
+		return nil, liqerr.New(liqerr.CodeInvalidQuery,
 			"liquidity: no registered USDC for chain %q (prepare_calls)", chain)
 	}
 	wallet, ok := GatewayWalletAddress(chain)
 	if !ok {
-		return liqerr.New(liqerr.CodeInvalidQuery,
+		return nil, liqerr.New(liqerr.CodeInvalidQuery,
 			"liquidity: no gateway wallet for chain %q (prepare_calls)", chain)
 	}
 	if !s.AmountAtomic.IsPositive() {
-		return liqerr.New(liqerr.CodeInvalidQuery,
+		return nil, liqerr.New(liqerr.CodeInvalidQuery,
 			"liquidity: deposit amount must be positive for prepare_calls")
 	}
 
 	approveData, err := packCall(selectorApprove, wallet, s.AmountAtomic)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	depositData, err := packCall(selectorDeposit, usdc, s.AmountAtomic)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	s.PrepareCalls = []PrepareCall{
+	return []PrepareCall{
 		{
 			ChainCAIP2:  chain,
 			To:          usdc,
@@ -84,6 +82,21 @@ func attachDepositPrepareCalls(s *PlanStep) error {
 			Method:      "deposit",
 			Description: "Circle Gateway Wallet deposit(token,amount)",
 		},
+	}, nil
+}
+
+// attachDepositPrepareCalls fills approve+deposit prepare_calls for a deposit step.
+// Never mutates AmountAtomic or Recipient. To addresses are registry allowlisted.
+func attachDepositPrepareCalls(s *PlanStep) error {
+	if s == nil {
+		return nil
+	}
+	calls, err := BuildDepositPrepareCalls(*s)
+	if err != nil {
+		return err
+	}
+	if calls != nil {
+		s.PrepareCalls = calls
 	}
 	return nil
 }

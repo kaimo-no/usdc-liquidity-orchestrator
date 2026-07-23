@@ -103,10 +103,16 @@ type ConsolidateRequest struct {
 	Execute       bool           `json:"execute,omitempty"`
 }
 
+// ExecuteReceipt is optional on-chain execute evidence (tx hashes only; no notes).
+type ExecuteReceipt struct {
+	TxHashes []string `json:"tx_hashes,omitempty"`
+}
+
 // PlanResponse is the HTTP plan output.
 type PlanResponse struct {
-	Plan  Plan      `json:"plan"`
-	Error *APIError `json:"error,omitempty"`
+	Plan    Plan            `json:"plan"`
+	Receipt *ExecuteReceipt `json:"receipt,omitempty"`
+	Error   *APIError       `json:"error,omitempty"`
 }
 
 // APIError is the JSON error body.
