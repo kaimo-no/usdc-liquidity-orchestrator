@@ -11,7 +11,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"net"
@@ -23,6 +22,7 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/kaimo-no/usdc-liquidity-orchestrator/internal/httpserver"
+	"github.com/kaimo-no/usdc-liquidity-orchestrator/internal/rpcenv"
 	"github.com/kaimo-no/usdc-liquidity-orchestrator/pkg/execonchain"
 	"github.com/kaimo-no/usdc-liquidity-orchestrator/pkg/liquidity"
 )
@@ -58,12 +58,12 @@ func buildExecutor(listenAddr string) (liquidity.Executor, error) {
 	if key == "" {
 		return nil, fmt.Errorf("AGENT_PRIVATE_KEY required when ENABLE_TESTNET_EXECUTE=1")
 	}
-	rpcs, err := loadRPCsFromEnv()
+	rpcs, err := rpcenv.LoadEVMTestnetExecuteRPCs()
 	if err != nil {
 		return nil, err
 	}
 	if len(rpcs) == 0 {
-		return nil, fmt.Errorf("RPC_URLS_JSON or RPC_URL_eip155_* required when ENABLE_TESTNET_EXECUTE=1")
+		return nil, fmt.Errorf("testnet EVM RPC required when ENABLE_TESTNET_EXECUTE=1 (RPC_URL_BASE_SEPOLIA / ARBITRUM_SEPOLIA / ARC_TESTNET, RPC_URL_eip155_*, or RPC_URLS_JSON)")
 	}
 	ex, err := execonchain.NewDepositExecutor(execonchain.Config{
 		PrivateKeyHex: key,
@@ -88,54 +88,6 @@ func guardFromEnv() (*liquidity.Guard, error) {
 		g.MaxAmountAtomic = d
 	}
 	return g, nil
-}
-
-// loadRPCsFromEnv reads RPC_URLS_JSON and/or RPC_URL_eip155_N env vars.
-// Never logs values.
-func loadRPCsFromEnv() (map[string]string, error) {
-	out := map[string]string{}
-	if raw := strings.TrimSpace(os.Getenv("RPC_URLS_JSON")); raw != "" {
-		var m map[string]string
-		if err := json.Unmarshal([]byte(raw), &m); err != nil {
-			return nil, fmt.Errorf("RPC_URLS_JSON: invalid JSON object")
-		}
-		for k, v := range m {
-			k, v = strings.TrimSpace(k), strings.TrimSpace(v)
-			if k == "" || v == "" {
-				return nil, fmt.Errorf("RPC_URLS_JSON: empty key or value refused")
-			}
-			out[k] = v
-		}
-	}
-	const prefix = "RPC_URL_"
-	for _, e := range os.Environ() {
-		// KEY=VALUE
-		eq := strings.IndexByte(e, '=')
-		if eq <= 0 {
-			continue
-		}
-		name, val := e[:eq], e[eq+1:]
-		if !strings.HasPrefix(name, prefix) {
-			continue
-		}
-		// RPC_URL_eip155_84532 → eip155:84532
-		rest := strings.TrimPrefix(name, prefix)
-		if rest == "" {
-			continue
-		}
-		caip := strings.ReplaceAll(rest, "_", ":")
-		// Prefer first underscore → colon only for eip155_N form.
-		// eip155_84532 → eip155:84532 (single replacement of first _)
-		if strings.HasPrefix(rest, "eip155_") {
-			caip = "eip155:" + strings.TrimPrefix(rest, "eip155_")
-		}
-		val = strings.TrimSpace(val)
-		if val == "" {
-			return nil, fmt.Errorf("%s: empty value refused", name)
-		}
-		out[caip] = val
-	}
-	return out, nil
 }
 
 // isLoopbackListen accepts host parts that bind only to loopback.

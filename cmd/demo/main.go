@@ -14,6 +14,7 @@ import (
 
 	"github.com/shopspring/decimal"
 
+	"github.com/kaimo-no/usdc-liquidity-orchestrator/internal/rpcenv"
 	"github.com/kaimo-no/usdc-liquidity-orchestrator/pkg/execonchain"
 	"github.com/kaimo-no/usdc-liquidity-orchestrator/pkg/liquidity"
 )
@@ -123,9 +124,9 @@ func demoLiveConsolidateExecute() {
 		fmt.Fprintln(os.Stderr, "# skip live execute: AGENT_PRIVATE_KEY unset")
 		return
 	}
-	rpcs, err := loadDemoRPCs()
+	rpcs, err := rpcenv.LoadEVMTestnetExecuteRPCs()
 	if err != nil || len(rpcs) == 0 {
-		fmt.Fprintln(os.Stderr, "# skip live execute: no testnet RPCs (RPC_URLS_JSON or RPC_URL_eip155_*)")
+		fmt.Fprintln(os.Stderr, "# skip live execute: no testnet EVM RPCs (RPC_URL_BASE_SEPOLIA / ARBITRUM_SEPOLIA / ARC_TESTNET, or eip155_*/JSON)")
 		return
 	}
 	guard := &liquidity.Guard{}
@@ -192,35 +193,4 @@ func demoLiveConsolidateExecute() {
 		return
 	}
 	fmt.Fprintln(os.Stderr, "# live execute ok")
-}
-
-func loadDemoRPCs() (map[string]string, error) {
-	out := map[string]string{}
-	if raw := strings.TrimSpace(os.Getenv("RPC_URLS_JSON")); raw != "" {
-		if err := json.Unmarshal([]byte(raw), &out); err != nil {
-			return nil, err
-		}
-	}
-	const prefix = "RPC_URL_"
-	for _, e := range os.Environ() {
-		eq := strings.IndexByte(e, '=')
-		if eq <= 0 {
-			continue
-		}
-		name, val := e[:eq], e[eq+1:]
-		if !strings.HasPrefix(name, prefix) {
-			continue
-		}
-		rest := strings.TrimPrefix(name, prefix)
-		var caip string
-		if strings.HasPrefix(rest, "eip155_") {
-			caip = "eip155:" + strings.TrimPrefix(rest, "eip155_")
-		} else {
-			caip = strings.ReplaceAll(rest, "_", ":")
-		}
-		if strings.TrimSpace(val) != "" {
-			out[caip] = strings.TrimSpace(val)
-		}
-	}
-	return out, nil
 }

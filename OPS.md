@@ -16,7 +16,9 @@ Pre-production / hackathon ops checklist for **usdc-liquidity-orchestrator**.
 |---|---|
 | `ENABLE_TESTNET_EXECUTE=1` | Explicit opt-in |
 | `AGENT_PRIVATE_KEY` | Hex ECDSA matching inventory `agent_address` |
-| `RPC_URLS_JSON` or `RPC_URL_eip155_*` | Testnet GatewayOK chains only (mainnet keys refused at startup) |
+| Named RPCs | `RPC_URL_BASE_SEPOLIA`, `RPC_URL_ARBITRUM_SEPOLIA`, `RPC_URL_ARC_TESTNET` (EVM execute) |
+| `RPC_URL_SOLANA_DEVNET` | Placeholder only — not used by deposit execute today |
+| Alternates | `RPC_URLS_JSON` or `RPC_URL_eip155_*` |
 | `LISTEN_ADDR` | Must be loopback (`127.0.0.1:8088`, `[::1]:8088`, `localhost:8088`) — bare `:8088` refused |
 
 Supported action: `circle_gateway_consolidate` deposit steps only. Signs **re-derived** prepare calls (not client calldata). Partial failures return hashes + `executed=false`.
@@ -26,9 +28,14 @@ Supported action: `circle_gateway_consolidate` deposit steps only. Signs **re-de
 export ENABLE_TESTNET_EXECUTE=1
 export LISTEN_ADDR=127.0.0.1:8088
 export AGENT_PRIVATE_KEY=0x…   # testnet throwaway
-export RPC_URL_eip155_84532=https://sepolia.base.org
+export RPC_URL_BASE_SEPOLIA=https://sepolia.base.org
+# export RPC_URL_ARBITRUM_SEPOLIA=…
+# export RPC_URL_ARC_TESTNET=…
+# export RPC_URL_SOLANA_DEVNET=https://api.devnet.solana.com   # ignored by EVM execute
 go run ./cmd/server
 ```
+
+See [`.env.example`](./.env.example) for all placeholders.
 
 Docker must **not** enable execute by default. Do not pass keys into images.
 

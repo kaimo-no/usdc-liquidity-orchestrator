@@ -65,8 +65,12 @@ Related private monorepo: `kaimo-no/kaimo-go` (World B commerce router can call 
 | `LISTEN_ADDR` | `:8088` | HTTP bind for `cmd/server` |
 | `ENABLE_TESTNET_EXECUTE` | unset | Set `1` to enable optional testnet deposit execute (dual gate) |
 | `AGENT_PRIVATE_KEY` | unset | Hex ECDSA key for deposit txs (never log; never commit) |
-| `RPC_URLS_JSON` | unset | JSON object map CAIP-2 → RPC URL (testnet chains only) |
-| `RPC_URL_eip155_<id>` | unset | Alternate per-chain RPC env (e.g. `RPC_URL_eip155_84532`) |
+| `RPC_URL_BASE_SEPOLIA` | unset | Base Sepolia JSON-RPC → `eip155:84532` |
+| `RPC_URL_ARBITRUM_SEPOLIA` | unset | Arbitrum Sepolia JSON-RPC → `eip155:421614` |
+| `RPC_URL_ARC_TESTNET` | unset | Arc Testnet JSON-RPC → `eip155:5042002` |
+| `RPC_URL_SOLANA_DEVNET` | unset | Solana Devnet RPC (ops placeholder; **not** used by EVM DepositExecutor) |
+| `RPC_URLS_JSON` | unset | JSON object map CAIP-2 → RPC URL |
+| `RPC_URL_eip155_<id>` | unset | Alternate per-chain RPC (e.g. `RPC_URL_eip155_84532`) |
 | `MAX_AMOUNT_ATOMIC` | unset | Optional Guard max step/required amount (atomic units) |
 
 Plan-only mode needs no secrets. Testnet execute also requires **loopback** `LISTEN_ADDR` (`127.0.0.1`, `::1`, or `localhost` — bare `:8088` is refused). Never commit keys; never log keys, balances, prepare calldata, or RPC URLs.

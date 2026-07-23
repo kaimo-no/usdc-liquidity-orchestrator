@@ -32,7 +32,9 @@ API error messages use stable `pkg/errors` Message only — never raw RPC string
 | `LISTEN_ADDR` | default `:8088`; **must be loopback** when execute enabled |
 | `ENABLE_TESTNET_EXECUTE` | `1` to enable |
 | `AGENT_PRIVATE_KEY` | hex ECDSA (required when enabled) |
-| `RPC_URLS_JSON` / `RPC_URL_eip155_*` | testnet RPC map |
+| `RPC_URL_BASE_SEPOLIA` / `ARBITRUM_SEPOLIA` / `ARC_TESTNET` | named EVM testnet RPCs |
+| `RPC_URL_SOLANA_DEVNET` | Solana placeholder (not used by deposit execute) |
+| `RPC_URLS_JSON` / `RPC_URL_eip155_*` | alternate CAIP-2 RPC map |
 | `MAX_AMOUNT_ATOMIC` | optional Guard cap (positive atomic units) |
 
 Else: `UnconfiguredExecutor` (fail-closed). Never log key/agent/balances/calldata/RPC URL.

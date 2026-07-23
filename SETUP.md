@@ -51,14 +51,17 @@ Dual-gated; **not** for Docker default. See [`OPS.md`](./OPS.md).
 export ENABLE_TESTNET_EXECUTE=1
 export LISTEN_ADDR=127.0.0.1:8088   # loopback required (bare :8088 refused)
 export AGENT_PRIVATE_KEY=0x…        # throwaway testnet key; never commit
-export RPC_URL_eip155_84532=https://sepolia.base.org
-# or: export RPC_URLS_JSON='{"eip155:84532":"https://…"}'
+export RPC_URL_BASE_SEPOLIA=https://sepolia.base.org
+# export RPC_URL_ARBITRUM_SEPOLIA=…
+# export RPC_URL_ARC_TESTNET=…
+# export RPC_URL_SOLANA_DEVNET=…    # ops placeholder; not used by EVM deposit execute
+# or CAIP form: RPC_URL_eip155_84532=… / RPC_URLS_JSON='{"eip155:84532":"https://…"}'
 go run ./cmd/server
 # demo live path (stderr tx hashes only):
 go run ./cmd/demo
 ```
 
-Requirements: inventory `agent_address` must match the key; only `circle_gateway_consolidate` deposit steps; mainnet RPCs refused at startup.
+Copy [`.env.example`](./.env.example) for named placeholders. Requirements: inventory `agent_address` must match the key; only `circle_gateway_consolidate` deposit steps; mainnet RPCs refused; Solana RPC is stored for ops but not used by deposit execute yet.
 
 ## VS Code / Cursor
 
