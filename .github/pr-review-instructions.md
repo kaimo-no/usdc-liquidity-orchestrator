@@ -6,7 +6,7 @@ Read `/CLAUDE.md` first — source of truth for invariants and module map. Modul
 
 ## Do not flag documented known limitations as bugs
 
-- Live Circle Gateway / CCTP **execute** is intentionally unconfigured (`UnconfiguredExecutor` always errors).
+- Live Circle Gateway / CCTP **execute** defaults to fail-closed (`UnconfiguredExecutor` always errors). Optional dual-gated **testnet-only** Gateway **deposit** execute exists (`pkg/execonchain.DepositExecutor`: consolidate deposits only; withdraw/CCTP still unconfigured).
 - Solana corridors are EVM-first `corridor_unsupported` in this cut.
 - Inventory balances are client-asserted (`inventory_unverified=true`).
 

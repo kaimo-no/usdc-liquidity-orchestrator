@@ -46,6 +46,7 @@ Docker must **not** enable execute by default. Do not pass keys into images.
 | Var | Default | Notes |
 |---|---|---|
 | `LISTEN_ADDR` | `:8088` | Bind address (loopback required for execute) |
+| `MAX_AMOUNT_ATOMIC` | unset | Optional Guard max amount (atomic units) for execute/plan Guard |
 
 Docker/compose publish the same port (`8088:8088`). Probe externally (`curl …/healthz`); the distroless image has no shell for in-container healthchecks.
 

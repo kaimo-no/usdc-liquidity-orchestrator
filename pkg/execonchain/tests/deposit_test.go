@@ -42,7 +42,8 @@ type mockClient struct {
 	mu           sync.Mutex
 	chainID      *big.Int
 	nonce        uint64
-	gasPrice     *big.Int
+	gasTipCap    *big.Int
+	baseFee      *big.Int
 	estimateGas  uint64
 	estimateErr  error
 	sendErr      error
@@ -57,7 +58,8 @@ type mockClient struct {
 func newMock(chainID int64) *mockClient {
 	return &mockClient{
 		chainID:     big.NewInt(chainID),
-		gasPrice:    big.NewInt(1_000_000_000),
+		gasTipCap:   big.NewInt(1_000_000_000),
+		baseFee:     big.NewInt(1_000_000_000),
 		estimateGas: 100_000,
 	}
 }
@@ -75,8 +77,12 @@ func (m *mockClient) PendingNonceAt(ctx context.Context, account common.Address)
 	return m.nonce, nil
 }
 
-func (m *mockClient) SuggestGasPrice(ctx context.Context) (*big.Int, error) {
-	return new(big.Int).Set(m.gasPrice), nil
+func (m *mockClient) SuggestGasTipCap(ctx context.Context) (*big.Int, error) {
+	return new(big.Int).Set(m.gasTipCap), nil
+}
+
+func (m *mockClient) HeaderByNumber(ctx context.Context, number *big.Int) (*types.Header, error) {
+	return &types.Header{BaseFee: new(big.Int).Set(m.baseFee), Number: big.NewInt(1)}, nil
 }
 
 func (m *mockClient) EstimateGas(ctx context.Context, msg ethereum.CallMsg) (uint64, error) {
@@ -179,6 +185,28 @@ func TestDepositExecutor_HappyPath(t *testing.T) {
 	require.Len(t, rcpt.TxHashes, 2) // approve + deposit
 	assert.Equal(t, 2, mock.sends)
 	assert.GreaterOrEqual(t, mock.chainIDCalls, 1)
+	require.NotEmpty(t, mock.sent)
+	// EIP-1559 dynamic fee txs (type 2), not legacy gasPrice.
+	assert.Equal(t, uint8(types.DynamicFeeTxType), mock.sent[0].Type())
+	assert.NotNil(t, mock.sent[0].GasTipCap())
+	assert.NotNil(t, mock.sent[0].GasFeeCap())
+}
+
+func TestDepositExecutor_MaxAmountAtomic(t *testing.T) {
+	_, hex, agent := testKey(t)
+	mock := newMock(84532)
+	ex, err := execonchain.NewDepositExecutor(execonchain.Config{
+		PrivateKeyHex: hex,
+		RPCs:          map[string]string{baseSepCAIP2: "http://mock.local"},
+		Dial:          dialMock(mock),
+		Guard:         &liquidity.Guard{MaxAmountAtomic: decimal.RequireFromString("100")},
+	})
+	require.NoError(t, err)
+	plan := consolidatePlan(t, agent, "1000")
+	_, err = ex.Execute(context.Background(), plan)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "MaxAmountAtomic")
+	assert.Zero(t, mock.sends)
 }
 
 func TestDepositExecutor_KeyMismatch(t *testing.T) {

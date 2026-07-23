@@ -33,6 +33,7 @@ API error messages use stable `pkg/errors` Message only — never raw RPC string
 | `ENABLE_TESTNET_EXECUTE` | `1` to enable |
 | `AGENT_PRIVATE_KEY` | hex ECDSA (required when enabled) |
 | `RPC_URLS_JSON` / `RPC_URL_eip155_*` | testnet RPC map |
+| `MAX_AMOUNT_ATOMIC` | optional Guard cap (positive atomic units) |
 
 Else: `UnconfiguredExecutor` (fail-closed). Never log key/agent/balances/calldata/RPC URL.
 

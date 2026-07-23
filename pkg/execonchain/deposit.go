@@ -91,12 +91,17 @@ func NewDepositExecutor(cfg Config) (*DepositExecutor, error) {
 	if wait <= 0 {
 		wait = defaultWaitTimeout
 	}
+	// Non-nil so CheckPlan always runs with default (empty) Guard policies.
+	guard := cfg.Guard
+	if guard == nil {
+		guard = &liquidity.Guard{}
+	}
 
 	return &DepositExecutor{
 		key:         key,
 		addr:        addr,
 		rpcs:        rpcs,
-		guard:       cfg.Guard,
+		guard:       guard,
 		waitTimeout: wait,
 		dial:        dial,
 	}, nil
@@ -288,18 +293,29 @@ func (e *DepositExecutor) broadcastCall(ctx context.Context, cli ChainClient, ca
 		return "", liqerr.New(liqerr.CodeLiquidityRailUnavailable,
 			"deposit execute: nonce query failed")
 	}
-	gasPrice, err := cli.SuggestGasPrice(ctx)
+	tip, feeCap, err := eip1559Fees(ctx, cli)
 	if err != nil {
-		return "", liqerr.New(liqerr.CodeLiquidityRailUnavailable,
-			"deposit execute: gas price query failed")
+		return "", err
 	}
-	msg := ethereum.CallMsg{From: e.addr, To: &to, Data: data, Value: big.NewInt(0)}
+	msg := ethereum.CallMsg{
+		From: e.addr, To: &to, Data: data, Value: big.NewInt(0),
+		GasFeeCap: feeCap, GasTipCap: tip,
+	}
 	gasLimit, err := cli.EstimateGas(ctx, msg)
 	if err != nil {
 		// Fall back to a conservative limit if estimate fails (still fixed error on send/receipt).
 		gasLimit = 200_000
 	}
-	tx := types.NewTransaction(nonce, to, big.NewInt(0), gasLimit, gasPrice, data)
+	tx := types.NewTx(&types.DynamicFeeTx{
+		ChainID:   chainID,
+		Nonce:     nonce,
+		GasTipCap: tip,
+		GasFeeCap: feeCap,
+		Gas:       gasLimit,
+		To:        &to,
+		Value:     big.NewInt(0),
+		Data:      data,
+	})
 	signer := types.LatestSignerForChainID(chainID)
 	signed, err := types.SignTx(tx, signer, e.key)
 	if err != nil {
@@ -316,6 +332,29 @@ func (e *DepositExecutor) broadcastCall(ctx context.Context, cli ChainClient, ca
 		return hash, err
 	}
 	return hash, nil
+}
+
+// eip1559Fees returns tip + feeCap (2*baseFee + tip) for DynamicFeeTx.
+// Base/Arb Sepolia and other post-London nets reject legacy gasPrice txs.
+func eip1559Fees(ctx context.Context, cli ChainClient) (tip, feeCap *big.Int, err error) {
+	tip, err = cli.SuggestGasTipCap(ctx)
+	if err != nil {
+		return nil, nil, liqerr.New(liqerr.CodeLiquidityRailUnavailable,
+			"deposit execute: gas tip query failed")
+	}
+	if tip == nil || tip.Sign() < 0 {
+		return nil, nil, liqerr.New(liqerr.CodeLiquidityRailUnavailable,
+			"deposit execute: gas tip query failed")
+	}
+	header, err := cli.HeaderByNumber(ctx, nil)
+	if err != nil || header == nil || header.BaseFee == nil {
+		return nil, nil, liqerr.New(liqerr.CodeLiquidityRailUnavailable,
+			"deposit execute: base fee query failed")
+	}
+	// feeCap = 2*baseFee + tip — headroom for one base-fee doubling before inclusion.
+	feeCap = new(big.Int).Mul(header.BaseFee, big.NewInt(2))
+	feeCap.Add(feeCap, tip)
+	return tip, feeCap, nil
 }
 
 func (e *DepositExecutor) waitReceiptOK(ctx context.Context, cli ChainClient, hash common.Hash) error {

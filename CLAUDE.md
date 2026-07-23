@@ -67,6 +67,7 @@ Related private monorepo: `kaimo-no/kaimo-go` (World B commerce router can call 
 | `AGENT_PRIVATE_KEY` | unset | Hex ECDSA key for deposit txs (never log; never commit) |
 | `RPC_URLS_JSON` | unset | JSON object map CAIP-2 → RPC URL (testnet chains only) |
 | `RPC_URL_eip155_<id>` | unset | Alternate per-chain RPC env (e.g. `RPC_URL_eip155_84532`) |
+| `MAX_AMOUNT_ATOMIC` | unset | Optional Guard max step/required amount (atomic units) |
 
 Plan-only mode needs no secrets. Testnet execute also requires **loopback** `LISTEN_ADDR` (`127.0.0.1`, `::1`, or `localhost` — bare `:8088` is refused). Never commit keys; never log keys, balances, prepare calldata, or RPC URLs.
 

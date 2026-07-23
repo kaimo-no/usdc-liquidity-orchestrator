@@ -20,6 +20,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shopspring/decimal"
+
 	"github.com/kaimo-no/usdc-liquidity-orchestrator/internal/httpserver"
 	"github.com/kaimo-no/usdc-liquidity-orchestrator/pkg/execonchain"
 	"github.com/kaimo-no/usdc-liquidity-orchestrator/pkg/liquidity"
@@ -42,8 +44,12 @@ func main() {
 
 // buildExecutor returns UnconfiguredExecutor unless dual-gated testnet execute is on.
 func buildExecutor(listenAddr string) (liquidity.Executor, error) {
+	guard, err := guardFromEnv()
+	if err != nil {
+		return nil, err
+	}
 	if os.Getenv("ENABLE_TESTNET_EXECUTE") != "1" {
-		return liquidity.UnconfiguredExecutor{}, nil
+		return liquidity.UnconfiguredExecutor{Guard: guard}, nil
 	}
 	if !isLoopbackListen(listenAddr) {
 		return nil, fmt.Errorf("ENABLE_TESTNET_EXECUTE requires loopback LISTEN_ADDR (127.0.0.1, ::1, or localhost)")
@@ -62,12 +68,26 @@ func buildExecutor(listenAddr string) (liquidity.Executor, error) {
 	ex, err := execonchain.NewDepositExecutor(execonchain.Config{
 		PrivateKeyHex: key,
 		RPCs:          rpcs,
+		Guard:         guard,
 	})
 	if err != nil {
 		return nil, err
 	}
 	log.Printf("testnet deposit execute enabled (loopback only)")
 	return ex, nil
+}
+
+// guardFromEnv builds a Guard with optional MAX_AMOUNT_ATOMIC cap.
+func guardFromEnv() (*liquidity.Guard, error) {
+	g := &liquidity.Guard{}
+	if raw := strings.TrimSpace(os.Getenv("MAX_AMOUNT_ATOMIC")); raw != "" {
+		d, err := decimal.NewFromString(raw)
+		if err != nil || !d.IsPositive() {
+			return nil, fmt.Errorf("MAX_AMOUNT_ATOMIC: must be a positive decimal integer (atomic units)")
+		}
+		g.MaxAmountAtomic = d
+	}
+	return g, nil
 }
 
 // loadRPCsFromEnv reads RPC_URLS_JSON and/or RPC_URL_eip155_N env vars.

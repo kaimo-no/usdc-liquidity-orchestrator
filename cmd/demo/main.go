@@ -128,9 +128,19 @@ func demoLiveConsolidateExecute() {
 		fmt.Fprintln(os.Stderr, "# skip live execute: no testnet RPCs (RPC_URLS_JSON or RPC_URL_eip155_*)")
 		return
 	}
+	guard := &liquidity.Guard{}
+	if raw := strings.TrimSpace(os.Getenv("MAX_AMOUNT_ATOMIC")); raw != "" {
+		d, err := decimal.NewFromString(raw)
+		if err != nil || !d.IsPositive() {
+			fmt.Fprintln(os.Stderr, "# skip live execute: MAX_AMOUNT_ATOMIC invalid")
+			return
+		}
+		guard.MaxAmountAtomic = d
+	}
 	ex, err := execonchain.NewDepositExecutor(execonchain.Config{
 		PrivateKeyHex: key,
 		RPCs:          rpcs,
+		Guard:         guard,
 		WaitTimeout:   3 * time.Minute,
 	})
 	if err != nil {
