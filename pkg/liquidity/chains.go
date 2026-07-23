@@ -78,6 +78,13 @@ func GatewayWalletAddress(caip2 string) (addr string, ok bool) {
 	return GatewayWalletMainnet, true
 }
 
+// IsTestnetExecutableChain reports whether caip2 is a registered GatewayOK testnet
+// corridor eligible for optional live deposit execute (mainnet always false).
+func IsTestnetExecutableChain(caip2 string) bool {
+	c, ok := LookupChain(caip2)
+	return ok && c.Testnet && c.GatewayOK
+}
+
 // IsKnownUSDCAsset reports whether asset matches any registered chain USDC
 // or the case-insensitive token symbol "USDC" (gateway inventory convenience).
 func IsKnownUSDCAsset(asset string) bool {
