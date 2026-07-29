@@ -228,7 +228,7 @@ func TestDepositExecutor_KeyMismatch(t *testing.T) {
 	assert.Zero(t, mock.sends)
 }
 
-func TestDepositExecutor_ActionAllowlist(t *testing.T) {
+func TestDepositExecutor_ActionAllowlist_CCTPRefused(t *testing.T) {
 	_, hex, agent := testKey(t)
 	mock := newMock(84532)
 	ex, err := execonchain.NewDepositExecutor(execonchain.Config{
@@ -239,15 +239,15 @@ func TestDepositExecutor_ActionAllowlist(t *testing.T) {
 	require.NoError(t, err)
 
 	p := liquidity.Plan{
-		Action: liquidity.ActionCircleGatewayWithdraw,
+		Action: liquidity.ActionCCTPFast,
 		Required: liquidity.Required{
 			PayTo:      "0xMerchant000000000000000000000000000001",
 			ChainCAIP2: baseSepCAIP2, Asset: baseSepUSDC,
 			AmountAtomic: decimal.RequireFromString("1"),
 		},
 		Steps: []liquidity.PlanStep{{
-			Kind:         liquidity.StepKindCircleGatewayWithdraw,
-			ToChainCAIP2: baseSepCAIP2, Asset: baseSepUSDC,
+			Kind:           liquidity.StepKindCCTPBurn,
+			FromChainCAIP2: baseSepCAIP2, ToChainCAIP2: baseSepCAIP2, Asset: baseSepUSDC,
 			AmountAtomic:  decimal.RequireFromString("1"),
 			Recipient:     agent,
 			RecipientRole: liquidity.RecipientRoleAgentSelf,
@@ -257,7 +257,7 @@ func TestDepositExecutor_ActionAllowlist(t *testing.T) {
 	_, err = ex.Execute(context.Background(), p)
 	require.Error(t, err)
 	assert.Equal(t, liqerr.CodeLiquidityRailUnavailable, liqerr.CodeOf(err))
-	assert.Contains(t, err.Error(), "only circle_gateway_consolidate")
+	assert.Contains(t, err.Error(), "action not supported")
 }
 
 func TestDepositExecutor_ChainIDMismatch(t *testing.T) {

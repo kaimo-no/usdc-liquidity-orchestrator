@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"encoding/hex"
 	"math/big"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -30,17 +31,37 @@ type Config struct {
 	WaitTimeout time.Duration
 	// Dial creates a ChainClient for an RPC URL (default: DefaultDial).
 	Dial func(ctx context.Context, rpcURL string) (ChainClient, error)
+	// GatewayAPI is Circle Gateway API base (default testnet). Used for /v1/transfer.
+	GatewayAPI string
+	// HTTPDo performs Gateway HTTP (default: http.DefaultClient.Do).
+	HTTPDo func(*http.Request) (*http.Response, error)
+	// MaxFeeAtomic overrides burn-intent maxFee (default GATEWAY_MAX_FEE_ATOMIC or 2010000).
+	MaxFeeAtomic *big.Int
+	// TransferRetries is attempts for POST /v1/transfer after deposits (default 5).
+	// Deposits need Gateway finality; retries with delay cover short finality waits.
+	TransferRetries int
+	// TransferRetryDelay between transfer attempts (default 2s).
+	TransferRetryDelay time.Duration
+	// SaltFn optional fixed salt for tests (returns 0x-prefixed 32-byte hex).
+	SaltFn func() (string, error)
 }
 
-// DepositExecutor executes circle_gateway_consolidate deposit plans on testnets.
+// DepositExecutor executes testnet Gateway plans: consolidate deposits,
+// deposit_withdraw (deposits + burn/mint), and withdraw (burn/mint only).
 type DepositExecutor struct {
-	key         *ecdsa.PrivateKey
-	addr        common.Address
-	rpcs        map[string]string // lower-case CAIP-2 → URL
-	guard       *liquidity.Guard
-	waitTimeout time.Duration
-	dial        func(ctx context.Context, rpcURL string) (ChainClient, error)
-	mu          sync.Mutex
+	key                *ecdsa.PrivateKey
+	addr               common.Address
+	rpcs               map[string]string // lower-case CAIP-2 → URL
+	guard              *liquidity.Guard
+	waitTimeout        time.Duration
+	dial               func(ctx context.Context, rpcURL string) (ChainClient, error)
+	gatewayAPI         string
+	httpDo             func(*http.Request) (*http.Response, error)
+	maxFeeAtomic       *big.Int
+	transferRetries    int
+	transferRetryDelay time.Duration
+	saltFn             func() (string, error)
+	mu                 sync.Mutex
 }
 
 // NewDepositExecutor parses the key and validates RPC map keys (testnet only).
@@ -96,14 +117,41 @@ func NewDepositExecutor(cfg Config) (*DepositExecutor, error) {
 	if guard == nil {
 		guard = &liquidity.Guard{}
 	}
+	gwAPI := strings.TrimSpace(cfg.GatewayAPI)
+	if gwAPI == "" {
+		gwAPI = liquidity.GatewayAPITestnetBase
+	}
+	gwAPI = strings.TrimRight(gwAPI, "/")
+	httpDo := cfg.HTTPDo
+	if httpDo == nil {
+		httpDo = http.DefaultClient.Do
+	}
+	maxFee := cfg.MaxFeeAtomic
+	if maxFee == nil {
+		maxFee = maxFeeFromEnv()
+	}
+	retries := cfg.TransferRetries
+	if retries <= 0 {
+		retries = 5
+	}
+	retryDelay := cfg.TransferRetryDelay
+	if retryDelay <= 0 {
+		retryDelay = 2 * time.Second
+	}
 
 	return &DepositExecutor{
-		key:         key,
-		addr:        addr,
-		rpcs:        rpcs,
-		guard:       guard,
-		waitTimeout: wait,
-		dial:        dial,
+		key:                key,
+		addr:               addr,
+		rpcs:               rpcs,
+		guard:              guard,
+		waitTimeout:        wait,
+		dial:               dial,
+		gatewayAPI:         gwAPI,
+		httpDo:             httpDo,
+		maxFeeAtomic:       maxFee,
+		transferRetries:    retries,
+		transferRetryDelay: retryDelay,
+		saltFn:             cfg.SaltFn,
 	}, nil
 }
 
@@ -115,8 +163,13 @@ func (e *DepositExecutor) Address() common.Address {
 	return e.addr
 }
 
-// Execute runs a consolidate deposit plan (testnet only). Partial failures return
-// hashes broadcast so far plus a coded error (caller stamps executed=false).
+// Execute runs a testnet Gateway plan. Supported actions:
+//   - circle_gateway_consolidate — deposit steps only (re-derived prepare_calls)
+//   - circle_gateway_deposit_withdraw — deposits then burn intents + gatewayMint
+//   - circle_gateway_withdraw — burn intents + gatewayMint only
+//
+// Partial failures return hashes broadcast so far plus a coded error
+// (caller stamps executed=false). Never logs keys, balances, or calldata.
 func (e *DepositExecutor) Execute(ctx context.Context, p liquidity.Plan) (liquidity.Receipt, error) {
 	if e == nil {
 		return liquidity.Receipt{}, liqerr.New(liqerr.CodeLiquidityRailUnavailable,
@@ -128,35 +181,20 @@ func (e *DepositExecutor) Execute(ctx context.Context, p liquidity.Plan) (liquid
 	if err := e.guard.CheckPlan(p); err != nil {
 		return liquidity.Receipt{}, err
 	}
-
-	agent := strings.TrimSpace(p.AgentAddress())
-	if agent == "" || !strings.EqualFold(agent, e.addr.Hex()) {
-		return liquidity.Receipt{}, liqerr.New(liqerr.CodeInvalidQuery,
-			"deposit execute: agent_address must match configured key")
+	agent, err := e.validateAgentAndAction(p)
+	if err != nil {
+		return liquidity.Receipt{}, err
 	}
 
-	if p.Action != liquidity.ActionCircleGatewayConsolidate {
-		return liquidity.Receipt{}, liqerr.New(liqerr.CodeLiquidityRailUnavailable,
-			"deposit execute: only circle_gateway_consolidate is supported")
+	deposits, withdraws, err := splitGatewaySteps(p.Steps, agent)
+	if err != nil {
+		return liquidity.Receipt{}, err
 	}
-	if len(p.Steps) == 0 {
-		return liquidity.Receipt{}, liqerr.New(liqerr.CodeInvalidQuery,
-			"deposit execute: plan has no deposit steps")
-	}
-
-	for _, s := range p.Steps {
-		if strings.ToLower(strings.TrimSpace(s.Kind)) != liquidity.StepKindCircleGatewayDeposit {
-			return liquidity.Receipt{}, liqerr.New(liqerr.CodeLiquidityRailUnavailable,
-				"deposit execute: only circle_gateway_deposit steps allowed")
-		}
-		if !liquidity.IsTestnetExecutableChain(s.FromChainCAIP2) {
-			return liquidity.Receipt{}, liqerr.New(liqerr.CodeLiquidityRailUnavailable,
-				"deposit execute: chain is not testnet-executable")
-		}
+	if err := validateActionSteps(p.Action, deposits, withdraws); err != nil {
+		return liquidity.Receipt{}, err
 	}
 
 	var hashes []string
-	// Per-chain client + verified chain id (lazy).
 	clients := map[string]ChainClient{}
 	verified := map[string]bool{}
 	defer func() {
@@ -165,14 +203,153 @@ func (e *DepositExecutor) Execute(ctx context.Context, p liquidity.Plan) (liquid
 		}
 	}()
 
-	for i := range p.Steps {
-		stepHashes, err := e.executeDepositStep(ctx, p.Steps[i], clients, verified)
+	for i := range deposits {
+		stepHashes, err := e.executeDepositStep(ctx, deposits[i], clients, verified)
 		hashes = append(hashes, stepHashes...)
 		if err != nil {
 			return liquidity.Receipt{TxHashes: hashes}, err
 		}
 	}
+
+	if p.Action == liquidity.ActionCircleGatewayConsolidate {
+		return liquidity.Receipt{TxHashes: hashes}, nil
+	}
+
+	burnParams, err := burnParamsFromPlan(p.Action, deposits, withdraws, agent)
+	if err != nil {
+		return liquidity.Receipt{TxHashes: hashes}, err
+	}
+	mintHashes, err := e.executeBurnAndMint(ctx, burnParams, clients, verified)
+	hashes = append(hashes, mintHashes...)
+	if err != nil {
+		return liquidity.Receipt{TxHashes: hashes}, err
+	}
 	return liquidity.Receipt{TxHashes: hashes}, nil
+}
+
+func (e *DepositExecutor) validateAgentAndAction(p liquidity.Plan) (agent string, err error) {
+	agent = strings.TrimSpace(p.AgentAddress())
+	if agent == "" || !strings.EqualFold(agent, e.addr.Hex()) {
+		return "", liqerr.New(liqerr.CodeInvalidQuery,
+			"deposit execute: agent_address must match configured key")
+	}
+	switch p.Action {
+	case liquidity.ActionCircleGatewayConsolidate,
+		liquidity.ActionCircleGatewayDepositWithdraw,
+		liquidity.ActionCircleGatewayWithdraw:
+	default:
+		return "", liqerr.New(liqerr.CodeLiquidityRailUnavailable,
+			"deposit execute: action not supported for live execute")
+	}
+	if len(p.Steps) == 0 {
+		return "", liqerr.New(liqerr.CodeInvalidQuery,
+			"deposit execute: plan has no steps")
+	}
+	return agent, nil
+}
+
+func splitGatewaySteps(steps []liquidity.PlanStep, agent string) (deposits, withdraws []liquidity.PlanStep, err error) {
+	for i := range steps {
+		kind := strings.ToLower(strings.TrimSpace(steps[i].Kind))
+		switch kind {
+		case liquidity.StepKindCircleGatewayDeposit:
+			if !liquidity.IsTestnetExecutableChain(steps[i].FromChainCAIP2) {
+				return nil, nil, liqerr.New(liqerr.CodeLiquidityRailUnavailable,
+					"deposit execute: chain is not testnet-executable")
+			}
+			deposits = append(deposits, steps[i])
+		case liquidity.StepKindCircleGatewayWithdraw:
+			if !liquidity.IsTestnetExecutableChain(steps[i].ToChainCAIP2) {
+				return nil, nil, liqerr.New(liqerr.CodeLiquidityRailUnavailable,
+					"deposit execute: chain is not testnet-executable")
+			}
+			if !strings.EqualFold(strings.TrimSpace(steps[i].Recipient), agent) {
+				return nil, nil, liqerr.New(liqerr.CodeInvalidQuery,
+					"deposit execute: destinationRecipient must be agent_self")
+			}
+			withdraws = append(withdraws, steps[i])
+		default:
+			return nil, nil, liqerr.New(liqerr.CodeLiquidityRailUnavailable,
+				"deposit execute: unsupported step kind for live execute")
+		}
+	}
+	return deposits, withdraws, nil
+}
+
+func validateActionSteps(action liquidity.PlanAction, deposits, withdraws []liquidity.PlanStep) error {
+	switch action {
+	case liquidity.ActionCircleGatewayConsolidate:
+		if len(withdraws) > 0 || len(deposits) == 0 {
+			return liqerr.New(liqerr.CodeInvalidQuery,
+				"deposit execute: consolidate requires deposit steps only")
+		}
+	case liquidity.ActionCircleGatewayDepositWithdraw:
+		if len(deposits) == 0 || len(withdraws) == 0 {
+			return liqerr.New(liqerr.CodeInvalidQuery,
+				"deposit execute: deposit_withdraw requires deposit and withdraw steps")
+		}
+	case liquidity.ActionCircleGatewayWithdraw:
+		if len(deposits) > 0 || len(withdraws) == 0 {
+			return liqerr.New(liqerr.CodeInvalidQuery,
+				"deposit execute: withdraw action requires withdraw steps only")
+		}
+	}
+	return nil
+}
+
+// burnParamsFromPlan maps deposits (or withdraw-only) to burn/mint params.
+// destinationRecipient is always the agent.
+func burnParamsFromPlan(
+	action liquidity.PlanAction,
+	deposits, withdraws []liquidity.PlanStep,
+	agent string,
+) ([]burnMintParams, error) {
+	if len(withdraws) == 0 {
+		return nil, liqerr.New(liqerr.CodeInvalidQuery,
+			"deposit execute: missing withdraw step for burn/mint")
+	}
+	// Single dest withdraw is the common case (PlanPaymentFunding).
+	dest := withdraws[0].ToChainCAIP2
+	for _, w := range withdraws {
+		if !strings.EqualFold(strings.TrimSpace(w.ToChainCAIP2), strings.TrimSpace(dest)) {
+			return nil, liqerr.New(liqerr.CodeInvalidQuery,
+				"deposit execute: multiple withdraw destinations not supported")
+		}
+		if !strings.EqualFold(strings.TrimSpace(w.Recipient), agent) {
+			return nil, liqerr.New(liqerr.CodeInvalidQuery,
+				"deposit execute: destinationRecipient must be agent_self")
+		}
+	}
+
+	if action == liquidity.ActionCircleGatewayDepositWithdraw || len(deposits) > 0 {
+		out := make([]burnMintParams, 0, len(deposits))
+		for _, d := range deposits {
+			out = append(out, burnMintParams{
+				SourceChainCAIP2: d.FromChainCAIP2,
+				DestChainCAIP2:   dest,
+				ValueAtomic:      d.AmountAtomic,
+				Recipient:        agent,
+			})
+		}
+		return out, nil
+	}
+
+	// Withdraw-only: one burn per withdraw step.
+	// Source domain: FromChainCAIP2 if set, else same-domain as dest (Gateway same-chain withdraw).
+	out := make([]burnMintParams, 0, len(withdraws))
+	for _, w := range withdraws {
+		src := strings.TrimSpace(w.FromChainCAIP2)
+		if src == "" {
+			src = w.ToChainCAIP2
+		}
+		out = append(out, burnMintParams{
+			SourceChainCAIP2: src,
+			DestChainCAIP2:   w.ToChainCAIP2,
+			ValueAtomic:      w.AmountAtomic,
+			Recipient:        agent,
+		})
+	}
+	return out, nil
 }
 
 func (e *DepositExecutor) executeDepositStep(

@@ -19,9 +19,9 @@ It does **not** take product custody and does **not** route funds through a plat
 |---|---|
 | L0 wire types (`pkg/types`) | shipped |
 | L1 pure planner (`pkg/liquidity`) | shipped — shortfall-only + scenario full-funding (`PlanPaymentFunding`) |
-| L2 execute | fail-closed default; optional **testnet-only** deposit execute (`pkg/execonchain`) |
+| L2 execute | fail-closed default; optional **testnet-only** Gateway deposit + burn/mint (`pkg/execonchain`) |
 | HTTP microservice (`cmd/server`) | `GET /` plan UI, `POST /v1/plan`, `POST /v1/consolidate`, `GET /v1/chains`, `GET /healthz` |
-| CLI demo (`cmd/demo`) | env payment scenario full-funding dry plan + shortfall smoke + consolidate (+ optional live testnet execute) |
+| CLI demo (`cmd/demo`) | env payment scenario full-funding dry plan (+ optional live inventory) + shortfall smoke + consolidate (+ optional live testnet execute) |
 
 Related private monorepo: `kaimo-no/kaimo-go` (World B commerce router can call this as a library or HTTP service). **This repo has zero import of kaimo-go.**
 
@@ -30,7 +30,8 @@ Related private monorepo: `kaimo-no/kaimo-go` (World B commerce router can call 
 | Package | One-liner | Detail |
 |---|---|---|
 | `pkg/liquidity/` | Pure planner, guard, corridor matrix, executor stub | [pkg/liquidity/CLAUDE.md](pkg/liquidity/CLAUDE.md) |
-| `pkg/execonchain/` | Optional testnet-only Gateway deposit execute (go-ethereum) | [pkg/execonchain/CLAUDE.md](pkg/execonchain/CLAUDE.md) |
+| `pkg/execonchain/` | Optional testnet-only Gateway deposit + burn/mint execute | [pkg/execonchain/CLAUDE.md](pkg/execonchain/CLAUDE.md) |
+| `internal/inventory/` | Live native USDC + optional Gateway balances (demo) | inline |
 | `pkg/types/` | Agent-facing wire JSON shapes | [pkg/types/CLAUDE.md](pkg/types/CLAUDE.md) |
 | `pkg/errors/` | Stable `.Code` strings (`insufficient_liquidity`, …) | [pkg/errors/CLAUDE.md](pkg/errors/CLAUDE.md) |
 | `cmd/server/` | Thin HTTP microservice | [cmd/server/CLAUDE.md](cmd/server/CLAUDE.md) |
@@ -46,7 +47,7 @@ Related private monorepo: `kaimo-no/kaimo-go` (World B commerce router can call 
 - **Amount override** only when probe amount is missing; cannot change payTo / network / asset.
 - **Dry plan stamps:** `dry_run=true`, `executed=false`, `inventory_asserted=true`, `inventory_unverified=true` until real execute lands.
 - **`UnconfiguredExecutor` never succeeds.** Default `execute=true` returns `liquidity_rail_unavailable` (or `insufficient_liquidity` for shortfall actions).
-- **Optional testnet deposit execute** (`pkg/execonchain.DepositExecutor`): dual-gated env; **consolidate deposits only**; signs **re-derived** `BuildDepositPrepareCalls` only; mainnet RPC keys refused; loopback `LISTEN_ADDR` required for HTTP.
+- **Optional testnet Gateway execute** (`pkg/execonchain.DepositExecutor`): dual-gated env; consolidate deposits, `deposit_withdraw` (deposit + burn/mint), and withdraw burn/mint; signs **re-derived** deposit `BuildDepositPrepareCalls` only; burn `destinationRecipient` is always agent_self; mainnet RPC keys refused; loopback `LISTEN_ADDR` required for HTTP.
 - **Consolidate:** `PlanConsolidate` / `POST /v1/consolidate` — full-balance Gateway deposits, no pay_to/fee; deposit steps may include advisory unsigned `prepare_calls`.
 - **Guard dual predicates:** withdraw/cctp need merchant `pay_to`; deposit-only may have empty pay_to.
 - **Rail naming:** `circle_gateway_*` / `cctp_fast` — never bare `gateway` (avoids MoR / HTTP-gateway confusion). Bare inventory location `"gateway"` is ignored as invalid.
@@ -64,8 +65,10 @@ Related private monorepo: `kaimo-no/kaimo-go` (World B commerce router can call 
 | Var | Default | Purpose |
 |---|---|---|
 | `LISTEN_ADDR` | `:8088` | HTTP bind for `cmd/server` |
-| `ENABLE_TESTNET_EXECUTE` | unset | Set `1` to enable optional testnet deposit execute (dual gate) |
-| `AGENT_PRIVATE_KEY` | unset | Hex ECDSA key for deposit txs (never log; never commit) |
+| `ENABLE_TESTNET_EXECUTE` | unset | Set `1` to enable optional testnet Gateway execute (dual gate) |
+| `AGENT_PRIVATE_KEY` | unset | Hex ECDSA key for deposit/mint txs (never log; never commit) |
+| `GATEWAY_API_BASE` | testnet public | Circle Gateway API base (`/v1/balances`, `/v1/transfer`) |
+| `GATEWAY_MAX_FEE_ATOMIC` | `2010000` | Burn-intent maxFee (atomic USDC) |
 | `RPC_URL_BASE_SEPOLIA` | unset | Base Sepolia JSON-RPC → `eip155:84532` |
 | `RPC_URL_ARBITRUM_SEPOLIA` | unset | Arbitrum Sepolia JSON-RPC → `eip155:421614` |
 | `RPC_URL_ARC_TESTNET` | unset | Arc Testnet JSON-RPC → `eip155:5042002` |

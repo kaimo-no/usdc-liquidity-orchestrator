@@ -1,4 +1,4 @@
-// Package execonchain is an optional testnet-only on-chain deposit executor.
+// Package execonchain is an optional testnet-only on-chain Gateway executor.
 package execonchain
 
 import (
