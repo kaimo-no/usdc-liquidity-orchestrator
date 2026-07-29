@@ -1,8 +1,9 @@
 // Command demo runs:
-// 1) primary: env payment scenario full-funding dry plan (internal/scenario + PlanPaymentFunding)
-// 2) shortfall Gateway withdraw smoke (unchanged PlanOrchestration path)
-// 3) multi-chain consolidate into Circle Gateway (unsigned prepare_calls)
-// 4) optional live testnet consolidate execute when ENABLE_TESTNET_EXECUTE=1 + key + RPCs
+//  1. primary: env payment scenario full-funding dry plan (internal/scenario + PlanPaymentFunding)
+//     (+ optional live inventory when agent + RPCs set)
+//  2. shortfall Gateway withdraw smoke (unchanged PlanOrchestration path)
+//  3. multi-chain consolidate into Circle Gateway (unsigned prepare_calls)
+//  4. optional live testnet consolidate execute when ENABLE_TESTNET_EXECUTE=1 + key + RPCs
 package main
 
 import (
@@ -16,8 +17,10 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/kaimo-no/usdc-liquidity-orchestrator/internal/envfile"
+	"github.com/kaimo-no/usdc-liquidity-orchestrator/internal/inventory"
 	"github.com/kaimo-no/usdc-liquidity-orchestrator/internal/rpcenv"
 	"github.com/kaimo-no/usdc-liquidity-orchestrator/internal/scenario"
+	liqerr "github.com/kaimo-no/usdc-liquidity-orchestrator/pkg/errors"
 	"github.com/kaimo-no/usdc-liquidity-orchestrator/pkg/execonchain"
 	"github.com/kaimo-no/usdc-liquidity-orchestrator/pkg/liquidity"
 )
@@ -43,6 +46,9 @@ func main() {
 
 // demoScenarioPlan loads env payment scenario and prints a dry full-funding plan.
 // Returns true when a scenario was attempted (env present). Missing scenario is a soft skip.
+// When agent + testnet RPCs are set, tries live inventory.Load; on success still plans with
+// scenario.FundingSources() reals and refuses if any source real exceeds native on that chain.
+// inventory_unverified remains true on dry plan stamps (never claim verified).
 func demoScenarioPlan() bool {
 	if strings.TrimSpace(os.Getenv(scenario.EnvPaymentChain)) == "" &&
 		strings.TrimSpace(os.Getenv(scenario.EnvPaymentAmountUSDC)) == "" {
@@ -55,7 +61,10 @@ func demoScenarioPlan() bool {
 		os.Exit(1)
 	}
 	req := s.BuildRequired()
-	inv := s.BuildAssertedInventory()
+	inv, invNote := resolveScenarioInventory(s)
+	if invNote != "" {
+		fmt.Fprintln(os.Stderr, invNote)
+	}
 	plan, err := liquidity.PlanPaymentFunding(req, inv, s.FundingSources(), nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "payment funding plan error: %v\n", err)
@@ -71,7 +80,69 @@ func demoScenarioPlan() bool {
 	fmt.Fprintf(os.Stderr, "# dest=%s full-funding deposits + withdraw to agent_self (never merchant pay_to)\n",
 		s.PaymentChainCAIP2)
 	fmt.Fprintf(os.Stderr, "# amount_atomic is REAL; amount_logical_atomic + scale_factor stamped when set\n")
+	fmt.Fprintf(os.Stderr, "# inventory_unverified=%v (live load never stamps verified)\n", plan.InventoryUnverified)
 	return true
+}
+
+// resolveScenarioInventory prefers live inventory when agent + RPCs are available.
+// On live success, validates each hard-coded source real ≤ native balance on that chain.
+// Never logs balance amounts or RPC URLs.
+func resolveScenarioInventory(s scenario.Scenario) (liquidity.Inventory, string) {
+	asserted := s.BuildAssertedInventory()
+	agent := strings.TrimSpace(s.AgentAddress)
+	if agent == "" {
+		return asserted, ""
+	}
+	rpcs, err := rpcenv.LoadEVMTestnetExecuteRPCs()
+	if err != nil || len(rpcs) == 0 {
+		return asserted, ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	gw := strings.TrimSpace(os.Getenv("GATEWAY_API_BASE"))
+	live, err := inventory.Load(ctx, inventory.Config{
+		AgentAddress: agent,
+		RPCs:         rpcs,
+		GatewayAPI:   gw,
+	})
+	if err != nil {
+		return asserted, "# live inventory unavailable; using asserted SOURCE_AMOUNT_* inventory"
+	}
+	if err := validateSourcesAgainstNative(s.FundingSources(), live); err != nil {
+		fmt.Fprintf(os.Stderr, "payment funding plan error: %v\n", err)
+		os.Exit(1)
+	}
+	// Keep agent_address; live rows replace asserted for planning stamps only.
+	// Funding still uses scenario.FundingSources() amounts (not live-derived splits).
+	return live, "# live inventory loaded (native + optional gateway); funding sources remain hard-coded reals"
+}
+
+func validateSourcesAgainstNative(sources []liquidity.FundingSource, inv liquidity.Inventory) error {
+	for _, src := range sources {
+		if !src.AmountAtomic.IsPositive() {
+			continue
+		}
+		have := sumNativeOnChain(inv, src.ChainCAIP2)
+		if src.AmountAtomic.GreaterThan(have) {
+			return liqerr.New(liqerr.CodeInsufficientLiquidity,
+				"scenario: source real exceeds live native balance on chain")
+		}
+	}
+	return nil
+}
+
+func sumNativeOnChain(inv liquidity.Inventory, caip2 string) decimal.Decimal {
+	sum := decimal.Zero
+	for _, b := range inv.Balances {
+		if !strings.EqualFold(strings.TrimSpace(b.Location), liquidity.LocationNative) {
+			continue
+		}
+		if !strings.EqualFold(strings.TrimSpace(b.ChainCAIP2), strings.TrimSpace(caip2)) {
+			continue
+		}
+		sum = sum.Add(b.AmountAtomic)
+	}
+	return sum
 }
 
 func demoShortfallPlan() {

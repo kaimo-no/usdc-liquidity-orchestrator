@@ -5,7 +5,7 @@
 //	GET  /v1/chains       — registered corridors (discovery for agents)
 //	GET  /healthz
 //
-// Non-custodial: never holds product funds. Optional testnet deposit execute requires
+// Non-custodial: never holds product funds. Optional testnet Gateway execute requires
 // ENABLE_TESTNET_EXECUTE=1 + AGENT_PRIVATE_KEY + RPCs and loopback LISTEN_ADDR only.
 // Never log keys, agent addresses, balances, calldata, or RPC URLs.
 package main
@@ -65,15 +65,17 @@ func buildExecutor(listenAddr string) (liquidity.Executor, error) {
 	if len(rpcs) == 0 {
 		return nil, fmt.Errorf("testnet EVM RPC required when ENABLE_TESTNET_EXECUTE=1 (RPC_URL_BASE_SEPOLIA / ARBITRUM_SEPOLIA / ARC_TESTNET, RPC_URL_eip155_*, or RPC_URLS_JSON)")
 	}
+	gwAPI := strings.TrimSpace(os.Getenv("GATEWAY_API_BASE"))
 	ex, err := execonchain.NewDepositExecutor(execonchain.Config{
 		PrivateKeyHex: key,
 		RPCs:          rpcs,
 		Guard:         guard,
+		GatewayAPI:    gwAPI,
 	})
 	if err != nil {
 		return nil, err
 	}
-	log.Printf("testnet deposit execute enabled (loopback only)")
+	log.Printf("testnet gateway execute enabled (consolidate + deposit_withdraw; loopback only)")
 	return ex, nil
 }
 

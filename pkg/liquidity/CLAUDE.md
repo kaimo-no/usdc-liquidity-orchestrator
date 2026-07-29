@@ -44,10 +44,10 @@ Testnet-ready: multi-chain **consolidate** deposits + unsigned **prepare_calls**
 
 ## Known limitations
 
-- Default execute is fail-closed; optional live path is testnet Gateway **deposit** only (`pkg/execonchain`)
-- No Gateway withdraw / CCTP / mainnet execute in this package
+- Default execute is fail-closed; optional live path is testnet Gateway deposit + burn/mint (`pkg/execonchain`)
+- No CCTP / mainnet execute in this package
 - Solana corridors unsupported
-- Inventory balances are client-asserted (`inventory_unverified=true`)
+- Inventory balances are client-asserted unless demo loads via `internal/inventory` (still stamps `inventory_unverified=true`)
 - `prepare_calls` are server-generated advisory for agents (unsigned); live execute re-derives via `BuildDepositPrepareCalls`
 
 ## Tests

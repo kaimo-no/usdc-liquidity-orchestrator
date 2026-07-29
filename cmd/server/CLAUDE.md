@@ -33,11 +33,13 @@ API error messages use stable `pkg/errors` Message only — never raw RPC string
 | `ENABLE_TESTNET_EXECUTE` | `1` to enable |
 | `AGENT_PRIVATE_KEY` | hex ECDSA (required when enabled) |
 | `RPC_URL_BASE_SEPOLIA` / `ARBITRUM_SEPOLIA` / `ARC_TESTNET` | named EVM testnet RPCs |
-| `RPC_URL_SOLANA_DEVNET` | Solana placeholder (not used by deposit execute) |
+| `RPC_URL_SOLANA_DEVNET` | Solana placeholder (not used by EVM execute) |
 | `RPC_URLS_JSON` / `RPC_URL_eip155_*` | alternate CAIP-2 RPC map |
 | `MAX_AMOUNT_ATOMIC` | optional Guard cap (positive atomic units) |
+| `GATEWAY_API_BASE` | optional Gateway API base for burn/mint transfer |
+| `GATEWAY_MAX_FEE_ATOMIC` | optional burn-intent maxFee |
 
-Else: `UnconfiguredExecutor` (fail-closed). Never log key/agent/balances/calldata/RPC URL.
+Else: `UnconfiguredExecutor` (fail-closed). Live actions: consolidate, deposit_withdraw, withdraw. Never log key/agent/balances/calldata/RPC URL.
 
 ## Invariants
 

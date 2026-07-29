@@ -41,4 +41,5 @@ Public Go library + thin HTTP service: **non-custodial multi-chain USDC liquidit
 - deposit-only consolidate may omit pay_to; withdraw/cctp still require it  
 - `decimal.Decimal` atomic units, no float64  
 - tests under `tests/` as `package *_test`  
-- live execute (optional): testnet deposit only; re-derived prepare_calls; loopback + dual gate  
+- live execute (optional): testnet deposit + burn/mint; re-derived prepare_calls; agent_self only; loopback + dual gate  
+
