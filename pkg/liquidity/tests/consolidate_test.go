@@ -23,7 +23,7 @@ func TestPlanConsolidate_MultiChain_FullBalance_CAIPAscending(t *testing.T) {
 		},
 	}
 	p, err := liquidity.PlanConsolidate(inv, nil, nil)
-require.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, liquidity.ActionCircleGatewayConsolidate, p.Action)
 	assert.True(t, p.DryRun)
 	assert.False(t, p.Executed)
@@ -56,7 +56,7 @@ func TestPlanConsolidate_SourceAllowlist(t *testing.T) {
 	}
 	orch := &liquidity.Orchestration{SourceChainCAIP2s: []string{arcCAIP2}}
 	p, err := liquidity.PlanConsolidate(inv, orch, nil)
-require.NoError(t, err)
+	require.NoError(t, err)
 	require.Len(t, p.Steps, 1)
 	assert.Equal(t, arcCAIP2, p.Steps[0].FromChainCAIP2)
 	assert.True(t, p.Steps[0].AmountAtomic.Equal(decimal.RequireFromString("1000000")))
@@ -75,7 +75,7 @@ func TestPlanConsolidate_SkipNonGateway_AndGatewayLocation(t *testing.T) {
 		},
 	}
 	p, err := liquidity.PlanConsolidate(inv, nil, nil)
-require.NoError(t, err)
+	require.NoError(t, err)
 	require.Len(t, p.Steps, 1)
 	assert.Equal(t, arcCAIP2, p.Steps[0].FromChainCAIP2)
 }
@@ -89,7 +89,7 @@ func TestPlanConsolidate_SumMultiRowSameChain(t *testing.T) {
 		},
 	}
 	p, err := liquidity.PlanConsolidate(inv, nil, nil)
-require.NoError(t, err)
+	require.NoError(t, err)
 	require.Len(t, p.Steps, 1)
 	assert.True(t, p.Steps[0].AmountAtomic.Equal(decimal.RequireFromString("150")))
 }
@@ -102,7 +102,7 @@ func TestPlanConsolidate_NoopWhenNothingEligible(t *testing.T) {
 		}},
 	}
 	p, err := liquidity.PlanConsolidate(inv, nil, nil)
-require.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, liquidity.ActionNoop, p.Action)
 	assert.Empty(t, p.Steps)
 	assert.True(t, p.DryRun)
@@ -138,7 +138,7 @@ func TestPlanConsolidate_PlanToWire_OmitsRequiredAndAmountSource(t *testing.T) {
 		}},
 	}
 	p, err := liquidity.PlanConsolidate(inv, nil, nil)
-require.NoError(t, err)
+	require.NoError(t, err)
 	w := liquidity.PlanToWire(p)
 	assert.Nil(t, w.Required)
 	assert.Empty(t, w.AmountSource)
@@ -193,7 +193,7 @@ func TestUnconfiguredExecutor_Consolidate_RailUnavailable(t *testing.T) {
 		}},
 	}
 	p, err := liquidity.PlanConsolidate(inv, nil, nil)
-require.NoError(t, err)
+	require.NoError(t, err)
 	ex := liquidity.UnconfiguredExecutor{}
 	_, err = ex.Execute(context.Background(), p)
 	require.Error(t, err)

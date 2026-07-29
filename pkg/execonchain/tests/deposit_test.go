@@ -31,8 +31,8 @@ const (
 
 func testKey(t *testing.T) (*ecdsa.PrivateKey, string, string) {
 	t.Helper()
-require.NoError(t, err)
-require.NoError(t, err)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
 	hex := common.Bytes2Hex(crypto.FromECDSA(key))
 	addr := crypto.PubkeyToAddress(key.PublicKey).Hex()
 	return key, hex, addr
@@ -143,7 +143,7 @@ func consolidatePlan(t *testing.T, agent string, amount string) liquidity.Plan {
 		}},
 	}
 	p, err := liquidity.PlanConsolidate(inv, nil, nil)
-require.NoError(t, err)
+	require.NoError(t, err)
 	require.Equal(t, liquidity.ActionCircleGatewayConsolidate, p.Action)
 	return p
 }
@@ -176,12 +176,12 @@ func TestDepositExecutor_HappyPath(t *testing.T) {
 		Dial:          dialMock(mock),
 		WaitTimeout:   time.Second,
 	})
-require.NoError(t, err)
+	require.NoError(t, err)
 	assert.True(t, strings.EqualFold(ex.Address().Hex(), agent))
 
 	plan := consolidatePlan(t, agent, "1000")
 	rcpt, err := ex.Execute(context.Background(), plan)
-require.NoError(t, err)
+	require.NoError(t, err)
 	require.Len(t, rcpt.TxHashes, 2) // approve + deposit
 	assert.Equal(t, 2, mock.sends)
 	assert.GreaterOrEqual(t, mock.chainIDCalls, 1)
@@ -201,7 +201,7 @@ func TestDepositExecutor_MaxAmountAtomic(t *testing.T) {
 		Dial:          dialMock(mock),
 		Guard:         &liquidity.Guard{MaxAmountAtomic: decimal.RequireFromString("100")},
 	})
-require.NoError(t, err)
+	require.NoError(t, err)
 	plan := consolidatePlan(t, agent, "1000")
 	_, err = ex.Execute(context.Background(), plan)
 	require.Error(t, err)
@@ -217,7 +217,7 @@ func TestDepositExecutor_KeyMismatch(t *testing.T) {
 		RPCs:          map[string]string{baseSepCAIP2: "http://mock.local"},
 		Dial:          dialMock(mock),
 	})
-require.NoError(t, err)
+	require.NoError(t, err)
 
 	// Plan bound to a different agent address.
 	plan := consolidatePlan(t, "0x1111111111111111111111111111111111111111", "1000")
@@ -236,7 +236,7 @@ func TestDepositExecutor_ActionAllowlist_CCTPRefused(t *testing.T) {
 		RPCs:          map[string]string{baseSepCAIP2: "http://mock.local"},
 		Dial:          dialMock(mock),
 	})
-require.NoError(t, err)
+	require.NoError(t, err)
 
 	p := liquidity.Plan{
 		Action: liquidity.ActionCCTPFast,
@@ -268,7 +268,7 @@ func TestDepositExecutor_ChainIDMismatch(t *testing.T) {
 		RPCs:          map[string]string{baseSepCAIP2: "http://mock.local"},
 		Dial:          dialMock(mock),
 	})
-require.NoError(t, err)
+	require.NoError(t, err)
 	plan := consolidatePlan(t, agent, "1000")
 	_, err = ex.Execute(context.Background(), plan)
 	require.Error(t, err)
@@ -285,7 +285,7 @@ func TestDepositExecutor_PrepareCallsMutationRefused(t *testing.T) {
 		RPCs:          map[string]string{baseSepCAIP2: "http://mock.local"},
 		Dial:          dialMock(mock),
 	})
-require.NoError(t, err)
+	require.NoError(t, err)
 	plan := consolidatePlan(t, agent, "1000")
 	require.NotEmpty(t, plan.Steps[0].PrepareCalls)
 	// Mutate client-supplied calldata.
@@ -308,7 +308,7 @@ func TestDepositExecutor_PartialFailReturnsHashes(t *testing.T) {
 		Dial:          dialMock(mock),
 		WaitTimeout:   time.Second,
 	})
-require.NoError(t, err)
+	require.NoError(t, err)
 	plan := consolidatePlan(t, agent, "1000")
 	rcpt, err := ex.Execute(context.Background(), plan)
 	require.Error(t, err)
@@ -329,7 +329,7 @@ func TestDepositExecutor_ReceiptRevertPartial(t *testing.T) {
 		Dial:          dialMock(mock),
 		WaitTimeout:   time.Second,
 	})
-require.NoError(t, err)
+	require.NoError(t, err)
 	plan := consolidatePlan(t, agent, "1000")
 	rcpt, err := ex.Execute(context.Background(), plan)
 	require.Error(t, err)
@@ -355,13 +355,13 @@ func TestBuildDepositPrepareCalls_MatchesAttached(t *testing.T) {
 		RecipientRole:  liquidity.RecipientRoleAgentSelf,
 	}
 	calls, err := liquidity.BuildDepositPrepareCalls(step)
-require.NoError(t, err)
+	require.NoError(t, err)
 	require.Len(t, calls, 2)
 	assert.Equal(t, "approve", calls[0].Method)
 	assert.Equal(t, "deposit", calls[1].Method)
 
 	// Non-deposit → nil
 	none, err := liquidity.BuildDepositPrepareCalls(liquidity.PlanStep{Kind: liquidity.StepKindNote})
-require.NoError(t, err)
+	require.NoError(t, err)
 	assert.Nil(t, none)
 }

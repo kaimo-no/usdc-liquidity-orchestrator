@@ -90,7 +90,7 @@ func TestLoad_NativeAndGateway(t *testing.T) {
 		},
 		HTTPDo: httpDo,
 	})
-require.NoError(t, err)
+	require.NoError(t, err)
 	assert.True(t, sawGateway)
 	assert.Equal(t, 1, mock.calls)
 	require.NotNil(t, mock.lastTo)
@@ -130,7 +130,7 @@ func TestLoad_OmitsNonPositiveNative(t *testing.T) {
 		Dial:         func(ctx context.Context, url string) (inventory.BalanceClient, error) { return mock, nil },
 		HTTPDo:       httpDo,
 	})
-require.NoError(t, err)
+	require.NoError(t, err)
 	assert.Empty(t, inv.Balances)
 }
 
@@ -174,7 +174,7 @@ func TestLoad_GatewayHTTPErrorSoftSkips(t *testing.T) {
 			}, nil
 		},
 	})
-require.NoError(t, err)
+	require.NoError(t, err)
 	require.Len(t, inv.Balances, 1)
 	assert.Equal(t, liquidity.LocationNative, inv.Balances[0].Location)
 	assert.True(t, inv.Balances[0].AmountAtomic.Equal(decimal.NewFromInt(42)))

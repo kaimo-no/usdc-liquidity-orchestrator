@@ -31,7 +31,7 @@ func TestPrepareCalls_DepositGolden(t *testing.T) {
 		SourceChainCAIP2s: []string{baseSepCAIP2},
 	}
 	p, err := liquidity.PlanOrchestration(req, inv, orch, nil, nil)
-require.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, liquidity.ActionCircleGatewayDepositWithdraw, p.Action)
 	require.Len(t, p.Steps, 2)
 	dep := p.Steps[0]
@@ -54,7 +54,7 @@ require.NoError(t, err)
 
 	// approve spender = Gateway Wallet (arg0)
 	approveRaw, err := hex.DecodeString(strings.TrimPrefix(approve.Data, "0x"))
-require.NoError(t, err)
+	require.NoError(t, err)
 	require.Len(t, approveRaw, 4+32+32)
 	spenderWord := approveRaw[4 : 4+32]
 	assert.Equal(t, strings.ToLower(strings.TrimPrefix(wallet, "0x")),
@@ -72,7 +72,7 @@ require.NoError(t, err)
 	assert.True(t, strings.HasPrefix(strings.ToLower(deposit.Data), "0x47e7ef24"),
 		"deposit(address,uint256) selector, got %s", deposit.Data)
 	depositRaw, err := hex.DecodeString(strings.TrimPrefix(deposit.Data, "0x"))
-require.NoError(t, err)
+	require.NoError(t, err)
 	require.Len(t, depositRaw, 4+32+32)
 	tokenWord := depositRaw[4 : 4+32]
 	assert.Equal(t, strings.ToLower(strings.TrimPrefix(baseSepUSDC, "0x")),
@@ -95,7 +95,7 @@ func TestPrepareCalls_DoesNotMutateStepIdentity(t *testing.T) {
 		}},
 	}
 	p, err := liquidity.PlanConsolidate(inv, nil, nil)
-require.NoError(t, err)
+	require.NoError(t, err)
 	require.Len(t, p.Steps, 1)
 	assert.True(t, p.Steps[0].AmountAtomic.Equal(decimal.RequireFromString("42")))
 	assert.Equal(t, agentAddr, p.Steps[0].Recipient)
@@ -114,7 +114,7 @@ func TestPlan_DepositWithdraw_ShortfallPrepareCalls_Regression(t *testing.T) {
 		},
 	}
 	p, err := liquidity.PlanLiquidity(req, inv, nil)
-require.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, liquidity.ActionCircleGatewayDepositWithdraw, p.Action)
 	require.Len(t, p.Steps, 2)
 	assert.True(t, p.Steps[0].AmountAtomic.Equal(decimal.RequireFromString("22000000")))

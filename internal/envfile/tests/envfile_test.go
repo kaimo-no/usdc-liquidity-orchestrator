@@ -13,7 +13,7 @@ import (
 
 func TestLoad_MissingFile_Noop(t *testing.T) {
 	err := envfile.Load(filepath.Join(t.TempDir(), "no-such.env"))
-require.NoError(t, err)
+	require.NoError(t, err)
 }
 
 func TestLoad_SetsUnsetKeys(t *testing.T) {

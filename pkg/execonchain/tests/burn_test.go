@@ -49,7 +49,7 @@ func depositWithdrawPlan(t *testing.T, agent string) liquidity.Plan {
 		ChainCAIP2: arbSepCAIP2, AmountAtomic: decimal.RequireFromString("1000"),
 	}}
 	p, err := liquidity.PlanPaymentFunding(req, inv, sources, nil)
-require.NoError(t, err)
+	require.NoError(t, err)
 	require.Equal(t, liquidity.ActionCircleGatewayDepositWithdraw, p.Action)
 	return p
 }
@@ -118,11 +118,11 @@ func TestDepositExecutor_DepositWithdraw_HappyPath(t *testing.T) {
 		TransferRetryDelay: time.Millisecond,
 		SaltFn:             fixedSalt,
 	})
-require.NoError(t, err)
+	require.NoError(t, err)
 
 	plan := depositWithdrawPlan(t, agent)
 	rcpt, err := ex.Execute(context.Background(), plan)
-require.NoError(t, err)
+	require.NoError(t, err)
 	// 2 deposit txs (approve+deposit) + 1 mint
 	require.Len(t, rcpt.TxHashes, 3)
 	assert.Equal(t, 2, srcMock.sends)
@@ -147,7 +147,7 @@ func TestDepositExecutor_DestinationRecipientNotAgentRefused(t *testing.T) {
 		},
 		TransferRetries: 1,
 	})
-require.NoError(t, err)
+	require.NoError(t, err)
 
 	p := liquidity.Plan{
 		Action: liquidity.ActionCircleGatewayWithdraw,
@@ -179,7 +179,7 @@ func TestDepositExecutor_AgentEqualsPayToRefusedByGuard(t *testing.T) {
 		RPCs:          map[string]string{baseSepCAIP2: "http://mock.local"},
 		Dial:          dialMock(mock),
 	})
-require.NoError(t, err)
+	require.NoError(t, err)
 	p := liquidity.Plan{
 		Action: liquidity.ActionCircleGatewayWithdraw,
 		Required: liquidity.Required{
@@ -223,7 +223,7 @@ func TestDepositExecutor_WithdrawOnly_BurnMint(t *testing.T) {
 		TransferRetryDelay: time.Millisecond,
 		SaltFn:             fixedSalt,
 	})
-require.NoError(t, err)
+	require.NoError(t, err)
 	p := liquidity.Plan{
 		Action: liquidity.ActionCircleGatewayWithdraw,
 		Required: liquidity.Required{
@@ -241,7 +241,7 @@ require.NoError(t, err)
 	}
 	p.BindAgent(agent)
 	rcpt, err := ex.Execute(context.Background(), p)
-require.NoError(t, err)
+	require.NoError(t, err)
 	require.Len(t, rcpt.TxHashes, 1)
 	assert.Equal(t, 1, transferN)
 	assert.Equal(t, 1, mock.sends)
@@ -273,7 +273,7 @@ func TestDepositExecutor_TransferRetryThenSuccess(t *testing.T) {
 		TransferRetryDelay: time.Millisecond,
 		SaltFn:             fixedSalt,
 	})
-require.NoError(t, err)
+	require.NoError(t, err)
 	p := liquidity.Plan{
 		Action: liquidity.ActionCircleGatewayWithdraw,
 		Required: liquidity.Required{
@@ -288,7 +288,7 @@ require.NoError(t, err)
 	}
 	p.BindAgent(agent)
 	_, err = ex.Execute(context.Background(), p)
-require.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, 3, n)
 }
 
@@ -311,7 +311,7 @@ func TestDepositExecutor_TransferErrorSanitized(t *testing.T) {
 		TransferRetryDelay: time.Millisecond,
 		SaltFn:             fixedSalt,
 	})
-require.NoError(t, err)
+	require.NoError(t, err)
 	p := liquidity.Plan{
 		Action: liquidity.ActionCircleGatewayWithdraw,
 		Required: liquidity.Required{
@@ -362,7 +362,7 @@ func TestDepositExecutor_DepositWithdraw_PrepareMismatch(t *testing.T) {
 		},
 		TransferRetries: 1,
 	})
-require.NoError(t, err)
+	require.NoError(t, err)
 	plan := depositWithdrawPlan(t, agent)
 	require.NotEmpty(t, plan.Steps[0].PrepareCalls)
 	plan.Steps[0].PrepareCalls[0].Data = "0xdeadbeef"

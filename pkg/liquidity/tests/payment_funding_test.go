@@ -54,7 +54,7 @@ func paymentFundingHappy(t *testing.T) (liquidity.Required, liquidity.Inventory,
 func TestPlanPaymentFunding_T1_MultiSourceFullFunding(t *testing.T) {
 	req, inv, sources := paymentFundingHappy(t)
 	p, err := liquidity.PlanPaymentFunding(req, inv, sources, nil)
-require.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, liquidity.ActionCircleGatewayDepositWithdraw, p.Action)
 	assert.Contains(t, p.Reason, "scenario full-funding")
 	// two deposits + one withdraw
@@ -123,7 +123,7 @@ func TestPlanPaymentFunding_T8_DestChainSourceOK(t *testing.T) {
 		}},
 	}
 	p, err := liquidity.PlanPaymentFunding(req, inv, sources, nil)
-require.NoError(t, err)
+	require.NoError(t, err)
 	require.Len(t, p.Steps, 2)
 	assert.Equal(t, baseSepCAIP2, p.Steps[0].FromChainCAIP2)
 	assert.Equal(t, baseSepCAIP2, p.Steps[1].ToChainCAIP2)
@@ -132,7 +132,7 @@ require.NoError(t, err)
 func TestPlanPaymentFunding_T9_AgentSelfPrepareCalls(t *testing.T) {
 	req, inv, sources := paymentFundingHappy(t)
 	p, err := liquidity.PlanPaymentFunding(req, inv, sources, nil)
-require.NoError(t, err)
+	require.NoError(t, err)
 	for _, s := range p.Steps {
 		if s.Kind != liquidity.StepKindCircleGatewayDeposit {
 			continue
@@ -149,7 +149,7 @@ require.NoError(t, err)
 func TestPlanPaymentFunding_T10_DryStamps(t *testing.T) {
 	req, inv, sources := paymentFundingHappy(t)
 	p, err := liquidity.PlanPaymentFunding(req, inv, sources, nil)
-require.NoError(t, err)
+	require.NoError(t, err)
 	assert.True(t, p.DryRun)
 	assert.False(t, p.Executed)
 	assert.True(t, p.InventoryAsserted)
@@ -159,7 +159,7 @@ require.NoError(t, err)
 func TestPlanPaymentFunding_T13_PlanToWire_DualAmounts(t *testing.T) {
 	req, inv, sources := paymentFundingHappy(t)
 	p, err := liquidity.PlanPaymentFunding(req, inv, sources, nil)
-require.NoError(t, err)
+	require.NoError(t, err)
 	w := liquidity.PlanToWire(p)
 	require.NotNil(t, w.Required)
 	assert.Equal(t, "40000000", w.Required.AmountAtomic)
@@ -205,7 +205,7 @@ func TestPlanPaymentFunding_T14_ShortfallPathStillWorks(t *testing.T) {
 		},
 	}
 	p, err := liquidity.PlanLiquidity(req, inv, nil)
-require.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, liquidity.ActionCircleGatewayDepositWithdraw, p.Action)
 	require.Len(t, p.Steps, 2)
 	assert.True(t, p.Steps[0].AmountAtomic.Equal(decimal.RequireFromString("22000000")),

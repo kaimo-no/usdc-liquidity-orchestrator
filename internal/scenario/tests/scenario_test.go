@@ -56,7 +56,7 @@ func setHappyScenario(t *testing.T) {
 func TestLoadFromEnv_T1_HappyScale10(t *testing.T) {
 	setHappyScenario(t)
 	s, err := scenario.LoadFromEnv()
-require.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, int64(10), s.ScaleFactor)
 	assert.Equal(t, "eip155:84532", s.PaymentChainCAIP2)
 	assert.True(t, s.PaymentRealAtomic.Equal(decimal.RequireFromString("40000000")))
@@ -125,7 +125,7 @@ func TestLoadFromEnv_T5_EmptyPayTo(t *testing.T) {
 func TestLoadFromEnv_T6_EmptyAgent(t *testing.T) {
 	setHappyScenario(t)
 	t.Setenv(scenario.EnvAgentAddress, "")
-	require.NoError(t, err)
+	t.Setenv(scenario.EnvAgentPrivateKey, "")
 	_, err := scenario.LoadFromEnv()
 	require.Error(t, err)
 	assert.Equal(t, liqerr.CodeInvalidQuery, liqerr.CodeOf(err))
@@ -152,7 +152,7 @@ func TestLoadFromEnv_T8_DestChainSourceOK(t *testing.T) {
 	t.Setenv(scenario.EnvAgentAddress, agentAddr)
 
 	s, err := scenario.LoadFromEnv()
-require.NoError(t, err)
+	require.NoError(t, err)
 	require.Len(t, s.Sources, 1)
 	assert.Equal(t, "eip155:84532", s.Sources[0].ChainCAIP2)
 	assert.Equal(t, s.PaymentChainCAIP2, s.Sources[0].ChainCAIP2)
@@ -160,7 +160,7 @@ require.NoError(t, err)
 	inv := s.BuildAssertedInventory()
 	req := s.BuildRequired()
 	p, err := liquidity.PlanPaymentFunding(req, inv, s.FundingSources(), nil)
-require.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, liquidity.ActionCircleGatewayDepositWithdraw, p.Action)
 	// deposit on dest + withdraw
 	require.Len(t, p.Steps, 2)

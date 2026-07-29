@@ -58,7 +58,7 @@ func TestRequiredFromWire_AmountOverrideOnlyWhenMissing(t *testing.T) {
 	assert.Equal(t, liqerr.CodeInvalidQuery, liqerr.CodeOf(err))
 
 	req, err := liquidity.RequiredFromWire(wireLR(merchantPayTo, baseCAIP2, baseUSDC, ""), "500000")
-require.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, liquidity.AmountSourceOverride, req.AmountSource)
 	assert.Equal(t, merchantPayTo, req.PayTo)
 }
@@ -72,7 +72,7 @@ func TestPlan_NoopWhenDestNativeCovers(t *testing.T) {
 		}},
 	}
 	p, err := liquidity.PlanLiquidity(baseRequired(), inv, nil)
-require.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, liquidity.ActionNoop, p.Action)
 	assert.True(t, p.DryRun)
 	assert.False(t, p.Executed)
@@ -88,7 +88,7 @@ func TestPlan_CircleGatewayWithdraw_AgentSelfOnly(t *testing.T) {
 		}},
 	}
 	p, err := liquidity.PlanLiquidity(baseRequired(), inv, nil)
-require.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, liquidity.ActionCircleGatewayWithdraw, p.Action)
 	require.Len(t, p.Steps, 1)
 	assert.Equal(t, agentAddr, p.Steps[0].Recipient)
@@ -107,7 +107,7 @@ func TestPlan_CircleGatewayDepositWithdraw(t *testing.T) {
 		}},
 	}
 	p, err := liquidity.PlanLiquidity(baseRequired(), inv, nil)
-require.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, liquidity.ActionCircleGatewayDepositWithdraw, p.Action)
 	require.Len(t, p.Steps, 2)
 	for _, s := range p.Steps {
@@ -128,7 +128,7 @@ func TestPlan_ShortfallOnly_FragmentedBaseAndArb(t *testing.T) {
 		},
 	}
 	p, err := liquidity.PlanLiquidity(req, inv, nil)
-require.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, liquidity.ActionCircleGatewayDepositWithdraw, p.Action)
 	require.Len(t, p.Steps, 2)
 	assert.True(t, p.Steps[0].AmountAtomic.Equal(decimal.RequireFromString("22000000")))
@@ -145,7 +145,7 @@ func TestPlan_Insufficient(t *testing.T) {
 		}},
 	}
 	p, err := liquidity.PlanLiquidity(baseRequired(), inv, nil)
-require.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, liquidity.ActionInsufficient, p.Action)
 }
 
@@ -154,7 +154,7 @@ func TestPlan_CorridorUnsupported_Solana(t *testing.T) {
 	req.ChainCAIP2 = solCAIP2
 	req.Asset = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 	p, err := liquidity.PlanLiquidity(req, liquidity.Inventory{AgentAddress: agentAddr}, nil)
-require.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, liquidity.ActionCorridorUnsupported, p.Action)
 }
 
@@ -167,7 +167,7 @@ func TestPlan_BareGatewayLocationIgnored(t *testing.T) {
 		}},
 	}
 	p, err := liquidity.PlanLiquidity(baseRequired(), inv, nil)
-require.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, liquidity.ActionInsufficient, p.Action)
 }
 
@@ -202,7 +202,7 @@ func TestPlan_AtomicDecimal_NoRound2(t *testing.T) {
 		}},
 	}
 	p, err := liquidity.PlanLiquidity(req, inv, nil)
-require.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "1234567", p.Required.AmountAtomic.String())
 }
 
@@ -215,7 +215,7 @@ func TestPlanToWire_DryStamps(t *testing.T) {
 		}},
 	}
 	p, err := liquidity.PlanLiquidity(baseRequired(), inv, nil)
-require.NoError(t, err)
+	require.NoError(t, err)
 	w := liquidity.PlanToWire(p)
 	assert.True(t, w.DryRun)
 	assert.False(t, w.Executed)
@@ -238,7 +238,7 @@ func TestPlan_ArcGatewayWithdraw_AgentSelf(t *testing.T) {
 	}
 	orch := &liquidity.Orchestration{TargetChainCAIP2: arcCAIP2, PreferRail: liquidity.PreferRailCircleGateway}
 	p, err := liquidity.PlanOrchestration(req, inv, orch, nil, nil)
-require.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, liquidity.ActionCircleGatewayWithdraw, p.Action)
 	require.NotEmpty(t, p.Steps)
 	assert.Equal(t, agentAddr, p.Steps[0].Recipient)
@@ -260,7 +260,7 @@ func TestPlan_CrossChainUSDC_RegistryAddresses(t *testing.T) {
 		}},
 	}
 	p, err := liquidity.PlanLiquidity(req, inv, nil)
-require.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, liquidity.ActionCircleGatewayDepositWithdraw, p.Action)
 	require.Len(t, p.Steps, 2)
 	assert.Equal(t, arbUSDC, p.Steps[0].Asset)
@@ -287,7 +287,7 @@ func TestPlan_SourceAllowlist_ExcludesOnlySource(t *testing.T) {
 		AllowCircleGateway: &falseGW,
 	}
 	p, err := liquidity.PlanOrchestration(req, inv, orch, nil, nil)
-require.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, liquidity.ActionInsufficient, p.Action)
 }
 
@@ -309,7 +309,7 @@ func TestPlan_SourceAllowlist_IncludesBaseSepolia(t *testing.T) {
 		SourceChainCAIP2s: []string{baseSepCAIP2},
 	}
 	p, err := liquidity.PlanOrchestration(req, inv, orch, nil, nil)
-require.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, liquidity.ActionCircleGatewayDepositWithdraw, p.Action)
 	assert.Equal(t, baseSepCAIP2, p.Steps[0].FromChainCAIP2)
 	assert.Equal(t, baseSepUSDC, p.Steps[0].Asset)
@@ -340,7 +340,7 @@ func TestPlan_Fee_OnFundMoving(t *testing.T) {
 	}
 	fee := &liquidity.FeeConfig{Bps: 25, Recipient: kaimoFeeTo}
 	p, err := liquidity.PlanOrchestration(req, inv, nil, fee, nil)
-require.NoError(t, err)
+	require.NoError(t, err)
 	require.NotNil(t, p.Fee)
 	assert.Equal(t, int64(25), p.Fee.Bps)
 	assert.Equal(t, "55000", p.Fee.AmountAtomic.String())
@@ -375,7 +375,7 @@ func TestPlan_CCTPOnly_WhenGatewayDisallowed(t *testing.T) {
 	falseGW := false
 	orch := &liquidity.Orchestration{AllowCircleGateway: &falseGW}
 	p, err := liquidity.PlanOrchestration(req, inv, orch, nil, nil)
-require.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, liquidity.ActionCCTPFast, p.Action)
 	require.Len(t, p.Steps, 2)
 	assert.Equal(t, liquidity.StepKindCCTPBurn, p.Steps[0].Kind)
@@ -403,7 +403,7 @@ func TestPlan_PreferRail_CCTPWhenBothWork(t *testing.T) {
 	}
 	orch := &liquidity.Orchestration{PreferRail: liquidity.PreferRailCCTPFast}
 	p, err := liquidity.PlanOrchestration(req, inv, orch, nil, nil)
-require.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, liquidity.ActionCCTPFast, p.Action)
 	require.Len(t, p.Steps, 2)
 	assert.Equal(t, liquidity.StepKindCCTPBurn, p.Steps[0].Kind)
@@ -411,7 +411,7 @@ require.NoError(t, err)
 
 	// auto / default prefers Gateway when both work.
 	pAuto, err := liquidity.PlanOrchestration(req, inv, nil, nil, nil)
-require.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, liquidity.ActionCircleGatewayWithdraw, pAuto.Action)
 }
 
@@ -426,7 +426,7 @@ func TestPlan_PreferRail_SoftFallthrough_ToGateway(t *testing.T) {
 	}
 	orch := &liquidity.Orchestration{PreferRail: liquidity.PreferRailCCTPFast}
 	p, err := liquidity.PlanOrchestration(req, inv, orch, nil, nil)
-require.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, liquidity.ActionCircleGatewayWithdraw, p.Action)
 	require.Len(t, p.Steps, 1)
 	assert.Equal(t, liquidity.StepKindCircleGatewayWithdraw, p.Steps[0].Kind)
@@ -434,7 +434,7 @@ require.NoError(t, err)
 
 func TestPlanToWire_AmountSourceOverride(t *testing.T) {
 	req, err := liquidity.RequiredFromWire(wireLR(merchantPayTo, baseCAIP2, baseUSDC, ""), "1000000")
-require.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, liquidity.AmountSourceOverride, req.AmountSource)
 	inv := liquidity.Inventory{
 		AgentAddress: agentAddr,
@@ -444,7 +444,7 @@ require.NoError(t, err)
 		}},
 	}
 	p, err := liquidity.PlanLiquidity(req, inv, nil)
-require.NoError(t, err)
+	require.NoError(t, err)
 	w := liquidity.PlanToWire(p)
 	require.NotNil(t, w.Required)
 	assert.Equal(t, liquidity.AmountSourceOverride, w.Required.Source)
@@ -502,7 +502,7 @@ func TestPlan_UnknownEVM_CorridorUnsupported(t *testing.T) {
 	req := baseRequired()
 	req.ChainCAIP2 = "eip155:999999"
 	p, err := liquidity.PlanLiquidity(req, liquidity.Inventory{AgentAddress: agentAddr}, nil)
-require.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, liquidity.ActionCorridorUnsupported, p.Action)
 }
 
@@ -535,7 +535,7 @@ func TestPlan_DestNativeUSDCSymbol_ShortfallOnly(t *testing.T) {
 		},
 	}
 	p, err := liquidity.PlanLiquidity(req, inv, nil)
-require.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, liquidity.ActionCircleGatewayWithdraw, p.Action)
 	require.Len(t, p.Steps, 1)
 	assert.True(t, p.Steps[0].AmountAtomic.Equal(decimal.RequireFromString("22000000")),
@@ -556,7 +556,7 @@ func TestPlan_DestNativeUSDCSymbol_NoopWhenCovers(t *testing.T) {
 		}},
 	}
 	p, err := liquidity.PlanLiquidity(req, inv, nil)
-require.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, liquidity.ActionNoop, p.Action)
 }
 
@@ -569,7 +569,7 @@ func TestPlan_EmptyGatewayAsset_NotMatched(t *testing.T) {
 		}},
 	}
 	p, err := liquidity.PlanLiquidity(req, inv, nil)
-require.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, liquidity.ActionInsufficient, p.Action)
 }
 

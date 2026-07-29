@@ -19,7 +19,7 @@ func TestLoadFromEnv_NamedPlaceholders(t *testing.T) {
 	t.Setenv("RPC_URL_eip155_84532", "")
 
 	m, err := rpcenv.LoadFromEnv()
-require.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "https://base-sepolia.example", m[rpcenv.CAIP2BaseSepolia])
 	assert.Equal(t, "https://arb-sepolia.example", m[rpcenv.CAIP2ArbitrumSepolia])
 	assert.Equal(t, "https://arc-testnet.example", m[rpcenv.CAIP2ArcTestnet])
@@ -34,7 +34,7 @@ func TestLoadEVMTestnetExecuteRPCs_DropsSolana(t *testing.T) {
 	t.Setenv("RPC_URLS_JSON", "")
 
 	m, err := rpcenv.LoadEVMTestnetExecuteRPCs()
-require.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "https://base-sepolia.example", m[rpcenv.CAIP2BaseSepolia])
 	_, hasSol := m[rpcenv.CAIP2SolanaDevnet]
 	assert.False(t, hasSol, "Solana must not enter EVM deposit execute map")
@@ -49,7 +49,7 @@ func TestLoadFromEnv_CAIPStyleStillWorks(t *testing.T) {
 	t.Setenv("RPC_URL_eip155_84532", "https://via-caip.example")
 
 	m, err := rpcenv.LoadFromEnv()
-require.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "https://via-caip.example", m[rpcenv.CAIP2BaseSepolia])
 }
 
@@ -62,7 +62,7 @@ func TestLoadFromEnv_JSONAndNamedMerge(t *testing.T) {
 	t.Setenv("RPC_URL_eip155_84532", "")
 
 	m, err := rpcenv.LoadFromEnv()
-require.NoError(t, err)
+	require.NoError(t, err)
 	// Named placeholder applied after JSON → overrides.
 	assert.Equal(t, "https://named-wins.example", m[rpcenv.CAIP2BaseSepolia])
 }
