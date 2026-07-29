@@ -1,0 +1,14 @@
+# Gitleaks config for usdc-liquidity-orchestrator.
+# Extends default rules; allow only intentional public test fixtures.
+
+title = "usdc-liquidity-orchestrator"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Public well-known test fixtures (Anvil/Hardhat account #0); never live secrets"
+regexes = [
+  # Anvil/Hardhat default private key for account #0 (publicly documented).
+  '''(?i)0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80''',
+]

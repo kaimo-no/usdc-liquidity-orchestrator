@@ -28,6 +28,6 @@ jobs:
             | tar -xz -C /usr/local/bin gitleaks
           gitleaks version
       - name: scan history
-        run: gitleaks detect --source . --redact --verbose --no-banner
+        run: gitleaks detect --source . --config .gitleaks.toml --redact --verbose --no-banner
       - name: scan live-secret patterns
         run: bash scripts/check-no-live-secrets.sh

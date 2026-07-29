@@ -3,6 +3,8 @@ package scenario_test
 import (
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -176,9 +178,12 @@ func TestLoadFromEnv_T11_SourceModeAuto_NotImplemented(t *testing.T) {
 
 func TestLoadFromEnv_AgentKeyMismatch_Refuse(t *testing.T) {
 	setHappyScenario(t)
-	// well-known throwaway key → fixed address (not agentAddr)
-	t.Setenv(scenario.EnvAgentPrivateKey, "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
-	_, err := scenario.LoadFromEnv()
+	// Ephemeral key (never a fixed well-known fixture — avoids gitleaks history hits).
+	// AGENT_ADDRESS stays agentAddr from setHappyScenario → must not match derived.
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	t.Setenv(scenario.EnvAgentPrivateKey, "0x"+common.Bytes2Hex(crypto.FromECDSA(key)))
+	_, err = scenario.LoadFromEnv()
 	require.Error(t, err)
 	assert.Equal(t, liqerr.CodeInvalidQuery, liqerr.CodeOf(err))
 	assert.Contains(t, err.Error(), "does not match")
