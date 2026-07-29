@@ -6,10 +6,11 @@ Thin HTTP microservice wrapping `pkg/liquidity` (+ optional `pkg/execonchain`).
 
 | Method | Path | Behaviour |
 |---|---|---|
-| GET | `/` | Plan-only web UI (embedded `internal/httpserver/static/`) |
+| GET | `/` | MVP web UI (scenario / shortfall plan / consolidate / chains) |
 | GET | `/healthz` | `ok` |
 | GET | `/v1/chains` | Registered corridors (CAIP-2, USDC, Gateway domain, `testnet`, `gateway_wallet`) |
-| POST | `/v1/plan` | Decode `PlanRequest` → plan; stamp dry/execute; optional Executor |
+| POST | `/v1/plan` | Shortfall-only `PlanOrchestration`; stamp dry/execute; optional Executor |
+| POST | `/v1/payment-funding` | Scenario full-funding `PlanPaymentFunding` (hard-coded sources + real amounts) |
 | POST | `/v1/consolidate` | Decode `ConsolidateRequest` → deposit plan; stamp dry/execute; optional Executor |
 
 Handlers live in `internal/httpserver` (`NewMux` / `NewMuxWithOptions`) so `cmd/server/tests` can black-box the surface.
@@ -44,7 +45,7 @@ Else: `UnconfiguredExecutor` (fail-closed). Live actions: consolidate, deposit_w
 ## Invariants
 
 - Max body 1 MiB (`MaxBytesReader`)
-- **Never log request bodies** (wallet inventory, calldata) — applies to `/v1/plan` **and** `/v1/consolidate`
+- **Never log request bodies** (wallet inventory, calldata) — applies to `/v1/plan`, `/v1/payment-funding`, `/v1/consolidate`
 - No auth required for local/hackathon; production may add bearer later
 - Default plan responses force `dry_run=true`, `executed=false`, inventory stamps
 

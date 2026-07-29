@@ -832,3 +832,42 @@ func FeeConfigFromWire(bps int64, recipient string) *FeeConfig {
 		SettleVia: SettleViaX402,
 	}
 }
+
+// FundingSourcesFromWire parses hard-coded payment-funding sources (real amounts).
+// Optional amount_logical_atomic is stamp metadata only.
+func FundingSourcesFromWire(src []types.FundingSource) ([]FundingSource, error) {
+	if len(src) == 0 {
+		return nil, liqerr.New(liqerr.CodeInvalidQuery,
+			"liquidity: payment funding requires sources[]")
+	}
+	out := make([]FundingSource, 0, len(src))
+	for i, s := range src {
+		chain := strings.TrimSpace(s.ChainCAIP2)
+		if chain == "" {
+			return nil, liqerr.New(liqerr.CodeInvalidQuery,
+				"liquidity: sources[%d].chain_caip2 required", i)
+		}
+		real, err := parseAtomic(s.AmountAtomic)
+		if err != nil {
+			return nil, liqerr.Wrap(liqerr.CodeInvalidQuery, err,
+				"liquidity: sources[%d].amount_atomic", i)
+		}
+		if !real.IsPositive() {
+			return nil, liqerr.New(liqerr.CodeInvalidQuery,
+				"liquidity: sources[%d].amount_atomic must be positive", i)
+		}
+		fs := FundingSource{ChainCAIP2: chain, AmountAtomic: real}
+		if log := strings.TrimSpace(s.AmountLogicalAtomic); log != "" {
+			logical, err := parseAtomic(log)
+			if err != nil {
+				return nil, liqerr.Wrap(liqerr.CodeInvalidQuery, err,
+					"liquidity: sources[%d].amount_logical_atomic", i)
+			}
+			if logical.IsPositive() {
+				fs.AmountLogicalAtomic = logical
+			}
+		}
+		out = append(out, fs)
+	}
+	return out, nil
+}

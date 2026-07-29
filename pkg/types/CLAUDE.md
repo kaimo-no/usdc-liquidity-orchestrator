@@ -11,7 +11,8 @@ Agent-facing wire shapes for plan I/O (JSON tags only).
 - `Plan` / `PlanStep` — dry/execute plan envelope
 - `PrepareCall` — unsigned EVM call on deposit steps (`prepare_calls`)
 - `Inventory` / `Balance` — client-asserted balances
-- `PlanRequest` / `ConsolidateRequest` / `PlanResponse` / `APIError` — HTTP body shapes
+- `PlanRequest` / `ConsolidateRequest` / `PaymentFundingRequest` / `FundingSource` — HTTP inputs
+- `PlanResponse` / `APIError` / `ExecuteReceipt` — HTTP outputs
 - `ExecuteReceipt` — optional `tx_hashes` on successful/partial execute (no notes on wire)
 - `ChainInfo` / `ChainsResponse` — `GET /v1/chains` discovery (`testnet`, `gateway_wallet`)
 

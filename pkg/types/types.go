@@ -110,6 +110,22 @@ type ConsolidateRequest struct {
 	Execute       bool           `json:"execute,omitempty"`
 }
 
+// FundingSource is one hard-coded deposit source for scenario full-funding plans.
+// amount_atomic is REAL (on-chain); amount_logical_atomic is optional stamp metadata.
+type FundingSource struct {
+	ChainCAIP2          string `json:"chain_caip2"`
+	AmountAtomic        string `json:"amount_atomic"`                   // real
+	AmountLogicalAtomic string `json:"amount_logical_atomic,omitempty"` // logical pre-scale
+}
+
+// PaymentFundingRequest is POST /v1/payment-funding input (full hard-coded funding, not shortfall).
+type PaymentFundingRequest struct {
+	Required  Required        `json:"required"` // amount_atomic = REAL payment amount
+	Inventory Inventory       `json:"inventory"`
+	Sources   []FundingSource `json:"sources"`
+	Execute   bool            `json:"execute,omitempty"`
+}
+
 // ExecuteReceipt is optional on-chain execute evidence (tx hashes only; no notes).
 type ExecuteReceipt struct {
 	TxHashes []string `json:"tx_hashes,omitempty"`
