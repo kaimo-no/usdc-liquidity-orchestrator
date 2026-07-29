@@ -19,10 +19,9 @@ const (
 	GatewayMinterTestnet = "0x0022222ABE238Cc2C7Bb1f21003F0a260052475B"
 )
 
-// Receipt is a future execute receipt (unused while unconfigured).
+// Receipt is on-chain execute evidence (tx hashes only).
 type Receipt struct {
 	TxHashes []string
-	Note     string
 }
 
 // Executor runs a plan (circle_gateway / cctp). This cut ships the fail-closed stub.

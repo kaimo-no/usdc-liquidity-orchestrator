@@ -35,7 +35,6 @@ type Source struct {
 	ChainCAIP2    string
 	LogicalAtomic decimal.Decimal
 	RealAtomic    decimal.Decimal
-	HumanUSDC     string // original env human amount (not logged)
 }
 
 // Scenario is a fully validated env payment claim + hard-coded sources (real amounts).
@@ -186,7 +185,6 @@ func loadScaledSources(scale int64, payLogical, payReal decimal.Decimal) ([]Sour
 			ChainCAIP2:    info.CAIP2,
 			LogicalAtomic: logical,
 			RealAtomic:    real,
-			HumanUSDC:     human,
 		})
 		sumReal = sumReal.Add(real)
 		sumLogical = sumLogical.Add(logical)

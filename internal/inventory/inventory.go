@@ -5,7 +5,6 @@ package inventory
 import (
 	"bytes"
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -276,12 +275,4 @@ func testnetCAIP2ForDomain(domain int) (string, bool) {
 		}
 	}
 	return "", false
-}
-
-// EncodeBalanceOfCalldata is exported for tests (selector + address word).
-func EncodeBalanceOfCalldata(owner common.Address) string {
-	data := make([]byte, 4+32)
-	copy(data[:4], selectorBalanceOf)
-	copy(data[4+12:], owner.Bytes())
-	return "0x" + hex.EncodeToString(data)
 }
