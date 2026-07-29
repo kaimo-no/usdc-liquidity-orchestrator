@@ -3,16 +3,20 @@ package types
 
 // Required is the merchant-claim dest-chain need (untrusted pay_to metadata).
 // Agents fund agent_self only during prepare; pay_to is for later merchant settle.
+// amount_atomic is always the real on-chain amount. Optional amount_logical_atomic +
+// scale_factor stamp scenario scale (logical / scale → real).
 type Required struct {
-	Protocol     string `json:"protocol,omitempty"`
-	ChainCAIP2   string `json:"chain_caip2,omitempty"`
-	Asset        string `json:"asset,omitempty"`
-	AmountAtomic string `json:"amount_atomic,omitempty"`
-	AmountHuman  string `json:"amount_human,omitempty"`
-	PayTo        string `json:"pay_to"`
-	PayToRole    string `json:"pay_to_role"`
-	Source       string `json:"source,omitempty"`
-	Incomplete   bool   `json:"incomplete,omitempty"`
+	Protocol            string `json:"protocol,omitempty"`
+	ChainCAIP2          string `json:"chain_caip2,omitempty"`
+	Asset               string `json:"asset,omitempty"`
+	AmountAtomic        string `json:"amount_atomic,omitempty"`
+	AmountLogicalAtomic string `json:"amount_logical_atomic,omitempty"`
+	ScaleFactor         int64  `json:"scale_factor,omitempty"`
+	AmountHuman         string `json:"amount_human,omitempty"`
+	PayTo               string `json:"pay_to"`
+	PayToRole           string `json:"pay_to_role"`
+	Source              string `json:"source,omitempty"`
+	Incomplete          bool   `json:"incomplete,omitempty"`
 }
 
 // Orchestration is optional agent setup: target + allowed sources + rail preference.
@@ -60,15 +64,18 @@ type PrepareCall struct {
 }
 
 // PlanStep is one fund-movement or note. Fund steps use recipient_role=agent_self.
+// amount_atomic is always real; optional amount_logical_atomic + scale_factor for scenario stamps.
 type PlanStep struct {
-	Kind           string        `json:"kind"`
-	FromChainCAIP2 string        `json:"from_chain_caip2,omitempty"`
-	ToChainCAIP2   string        `json:"to_chain_caip2,omitempty"`
-	Asset          string        `json:"asset,omitempty"`
-	AmountAtomic   string        `json:"amount_atomic,omitempty"`
-	Recipient      string        `json:"recipient,omitempty"`
-	RecipientRole  string        `json:"recipient_role,omitempty"`
-	PrepareCalls   []PrepareCall `json:"prepare_calls,omitempty"`
+	Kind                string        `json:"kind"`
+	FromChainCAIP2      string        `json:"from_chain_caip2,omitempty"`
+	ToChainCAIP2        string        `json:"to_chain_caip2,omitempty"`
+	Asset               string        `json:"asset,omitempty"`
+	AmountAtomic        string        `json:"amount_atomic,omitempty"`
+	AmountLogicalAtomic string        `json:"amount_logical_atomic,omitempty"`
+	ScaleFactor         int64         `json:"scale_factor,omitempty"`
+	Recipient           string        `json:"recipient,omitempty"`
+	RecipientRole       string        `json:"recipient_role,omitempty"`
+	PrepareCalls        []PrepareCall `json:"prepare_calls,omitempty"`
 }
 
 // Inventory is client-asserted balances (never server-custodied product funds).

@@ -23,13 +23,15 @@ bash scripts/check-test-layout.sh
 ## Demo (worked example)
 
 ```bash
+cp .env.example .env   # optional; fill AGENT_ADDRESS + payment scenario
 go run ./cmd/demo
 ```
 
-Expect Arc Testnet `circle_gateway_withdraw` shortfall 22 USDC (need 42, native Arc 20, gateway covers rest) to `agent_self`, plus optional fee metadata (`settle_via=x402`).
+Primary path (when `PAYMENT_CHAIN` / scenario env is set): **full-funding** dry plan via `PlanPaymentFunding` — hard-coded `SOURCE_AMOUNT_*` deposits (scaled by `USDC_SCALE_FACTOR`) + withdraw full payment real to `agent_self`. Wire stamps `amount_atomic` (real) and optional `amount_logical_atomic` / `scale_factor`.
 
-Legacy Base/Arb fragmented example: `examples/plan-base-fragmented.json`.
+Also prints shortfall smoke (Arc Testnet `circle_gateway_withdraw` need 42 / native 20 → shortfall 22) and consolidate with unsigned `prepare_calls`.
 
+Legacy Base/Arb fragmented example: `examples/plan-base-fragmented.json`. Scenario path is **not** HTTP `/v1/plan`.
 ## HTTP server
 
 ```bash

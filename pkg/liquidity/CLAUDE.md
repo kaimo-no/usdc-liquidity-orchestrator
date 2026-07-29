@@ -10,10 +10,11 @@ Testnet-ready: multi-chain **consolidate** deposits + unsigned **prepare_calls**
 |---|---|
 | `RequiredFromWire` | Build `Required` from merchant-claim wire; amount override only when amount missing |
 | `PlanLiquidity` | Dry plan (nil orchestration/fee) → delegates to `PlanOrchestration` |
-| `PlanOrchestration` | Same + `Orchestration` (target/sources/rail) + optional `FeeConfig` |
+| `PlanOrchestration` | Shortfall-only rebalance + `Orchestration` + optional `FeeConfig` |
+| `PlanPaymentFunding` | Scenario full-funding (not shortfall): hard-coded source deposits + full withdraw |
 | `PlanConsolidate` | Full-balance Gateway deposits (no pay_to/fee); action `circle_gateway_consolidate` |
 | `ListChains` / `LookupChain` / `GatewayWalletAddress` | Registry + testnet/mainnet Gateway Wallet |
-| `PlanToWire` | Agent-facing `types.Plan` stamps (+ fee + prepare_calls) |
+| `PlanToWire` | Agent-facing `types.Plan` stamps (+ fee + prepare_calls; optional logical/scale) |
 | `InventoryFromWire` / `OrchestrationFromWire` / `FeeConfigFromWire` | Wire helpers |
 | `Guard` | MaxAmountAtomic + AllowedAgentAddresses; dual predicates (merchant claim vs fund-moving) |
 | `CheckAgent` | Agent allowlist without merchant Required |
@@ -26,7 +27,8 @@ Testnet-ready: multi-chain **consolidate** deposits + unsigned **prepare_calls**
 
 - Fund steps: `RecipientRole=agent_self`, `Recipient=AgentAddress`
 - Never step.Recipient = Required.PayTo; never platform MoR as fund dest
-- Shortfall = required − dest native; steps move shortfall only
+- Shortfall = required − dest native; steps move shortfall only (`PlanOrchestration`)
+- **`PlanPaymentFunding`**: full hard-coded funding — deposit each positive source real, withdraw full `payment_real` to agent_self; reason uses scenario full-funding language; not used by HTTP `/v1/plan`
 - Bare location `"gateway"` → ignored (invalid); use `circle_gateway`
 - Solana / unknown dest → `corridor_unsupported` (EVM registry-first)
 - Fee (`orchestrator` / `settle_via=x402`) is **plan.fee only** — not a fund rail recipient and **not** a step in `steps[]`

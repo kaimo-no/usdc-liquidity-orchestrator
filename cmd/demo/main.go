@@ -1,7 +1,8 @@
-// Command demo runs hackathon worked examples:
-// 1) shortfall Gateway withdraw to agent_self on Arc Testnet
-// 2) multi-chain native consolidate into Circle Gateway (unsigned prepare_calls)
-// 3) optional live testnet consolidate execute when ENABLE_TESTNET_EXECUTE=1 + key + RPCs
+// Command demo runs:
+// 1) primary: env payment scenario full-funding dry plan (internal/scenario + PlanPaymentFunding)
+// 2) shortfall Gateway withdraw smoke (unchanged PlanOrchestration path)
+// 3) multi-chain consolidate into Circle Gateway (unsigned prepare_calls)
+// 4) optional live testnet consolidate execute when ENABLE_TESTNET_EXECUTE=1 + key + RPCs
 package main
 
 import (
@@ -14,12 +15,23 @@ import (
 
 	"github.com/shopspring/decimal"
 
+	"github.com/kaimo-no/usdc-liquidity-orchestrator/internal/envfile"
 	"github.com/kaimo-no/usdc-liquidity-orchestrator/internal/rpcenv"
+	"github.com/kaimo-no/usdc-liquidity-orchestrator/internal/scenario"
 	"github.com/kaimo-no/usdc-liquidity-orchestrator/pkg/execonchain"
 	"github.com/kaimo-no/usdc-liquidity-orchestrator/pkg/liquidity"
 )
 
 func main() {
+	// Optional local .env (never logs values; does not override existing env).
+	if err := envfile.Load(".env"); err != nil {
+		fmt.Fprintf(os.Stderr, "envfile: %v\n", err)
+		os.Exit(1)
+	}
+
+	if ran := demoScenarioPlan(); ran {
+		fmt.Fprint(os.Stderr, "\n--- shortfall smoke ---\n\n")
+	}
 	demoShortfallPlan()
 	fmt.Fprint(os.Stderr, "\n--- consolidate ---\n\n")
 	demoConsolidate()
@@ -27,6 +39,39 @@ func main() {
 		fmt.Fprint(os.Stderr, "\n--- live testnet consolidate execute ---\n\n")
 		demoLiveConsolidateExecute()
 	}
+}
+
+// demoScenarioPlan loads env payment scenario and prints a dry full-funding plan.
+// Returns true when a scenario was attempted (env present). Missing scenario is a soft skip.
+func demoScenarioPlan() bool {
+	if strings.TrimSpace(os.Getenv(scenario.EnvPaymentChain)) == "" &&
+		strings.TrimSpace(os.Getenv(scenario.EnvPaymentAmountUSDC)) == "" {
+		fmt.Fprintln(os.Stderr, "# skip scenario plan: PAYMENT_CHAIN / PAYMENT_AMOUNT_USDC unset (copy .env.example → .env)")
+		return false
+	}
+	s, err := scenario.LoadFromEnv()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "scenario plan error: %v\n", err)
+		os.Exit(1)
+	}
+	req := s.BuildRequired()
+	inv := s.BuildAssertedInventory()
+	plan, err := liquidity.PlanPaymentFunding(req, inv, s.FundingSources(), nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "payment funding plan error: %v\n", err)
+		os.Exit(1)
+	}
+	wire := liquidity.PlanToWire(plan)
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(wire)
+
+	fmt.Fprintf(os.Stderr, "\n# scenario action=%s dry_run=%v executed=%v scale=%d steps=%d\n",
+		plan.Action, plan.DryRun, plan.Executed, s.ScaleFactor, len(plan.Steps))
+	fmt.Fprintf(os.Stderr, "# dest=%s full-funding deposits + withdraw to agent_self (never merchant pay_to)\n",
+		s.PaymentChainCAIP2)
+	fmt.Fprintf(os.Stderr, "# amount_atomic is REAL; amount_logical_atomic + scale_factor stamped when set\n")
+	return true
 }
 
 func demoShortfallPlan() {
