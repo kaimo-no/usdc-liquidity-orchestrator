@@ -18,10 +18,10 @@ It does **not** take product custody and does **not** route funds through a plat
 | Layer | Status |
 |---|---|
 | L0 wire types (`pkg/types`) | shipped |
-| L1 pure planner (`pkg/liquidity`) | shipped — shortfall-only moves |
+| L1 pure planner (`pkg/liquidity`) | shipped — shortfall-only + scenario full-funding (`PlanPaymentFunding`) |
 | L2 execute | fail-closed default; optional **testnet-only** deposit execute (`pkg/execonchain`) |
 | HTTP microservice (`cmd/server`) | `GET /` plan UI, `POST /v1/plan`, `POST /v1/consolidate`, `GET /v1/chains`, `GET /healthz` |
-| CLI demo (`cmd/demo`) | shortfall plan + consolidate (+ optional live testnet execute) |
+| CLI demo (`cmd/demo`) | env payment scenario full-funding dry plan + shortfall smoke + consolidate (+ optional live testnet execute) |
 
 Related private monorepo: `kaimo-no/kaimo-go` (World B commerce router can call this as a library or HTTP service). **This repo has zero import of kaimo-go.**
 
@@ -50,7 +50,8 @@ Related private monorepo: `kaimo-no/kaimo-go` (World B commerce router can call 
 - **Consolidate:** `PlanConsolidate` / `POST /v1/consolidate` — full-balance Gateway deposits, no pay_to/fee; deposit steps may include advisory unsigned `prepare_calls`.
 - **Guard dual predicates:** withdraw/cctp need merchant `pay_to`; deposit-only may have empty pay_to.
 - **Rail naming:** `circle_gateway_*` / `cctp_fast` — never bare `gateway` (avoids MoR / HTTP-gateway confusion). Bare inventory location `"gateway"` is ignored as invalid.
-- **Shortfall-only rebalance:** plan amount = `required − dest_native`, not full required when dest already holds partial funds.
+- **Shortfall-only rebalance:** `PlanOrchestration` amount = `required − dest_native`, not full required when dest already holds partial funds.
+- **Scenario full-funding (demo only):** `PlanPaymentFunding` + `internal/scenario` — hard-coded source reals deposit + full withdraw; `real = floor(logical_atomic / USDC_SCALE_FACTOR)`; not exposed on HTTP `/v1/plan`.
 - **Orchestration options:** optional `target_chain_caip2` (must match required), `source_chain_caip2s` allowlist, `allow_circle_gateway`, `prefer_rail`.
 - **Fee:** optional `fee_bps` + `fee_recipient` — plan.fee envelope only (never a step); settle via x402 after prepare; not a fund-rail destination.
 - **`agent_address == pay_to` refused** on fund-moving plans (anti–confused-deputy).
@@ -72,8 +73,11 @@ Related private monorepo: `kaimo-no/kaimo-go` (World B commerce router can call 
 | `RPC_URLS_JSON` | unset | JSON object map CAIP-2 → RPC URL |
 | `RPC_URL_eip155_<id>` | unset | Alternate per-chain RPC (e.g. `RPC_URL_eip155_84532`) |
 | `MAX_AMOUNT_ATOMIC` | unset | Optional Guard max step/required amount (atomic units) |
+| `USDC_SCALE_FACTOR` | `1` | Demo scenario: real = floor(logical_atomic / scale); `<=0` refused |
+| `PAYMENT_*` / `SOURCE_AMOUNT_*` | see `.env.example` | Demo payment scenario only (`cmd/demo` + `internal/scenario`) |
+| `AGENT_ADDRESS` | unset | Demo agent; or derive from `AGENT_PRIVATE_KEY` (mismatch refused) |
 
-Plan-only mode needs no secrets. Testnet execute also requires **loopback** `LISTEN_ADDR` (`127.0.0.1`, `::1`, or `localhost` — bare `:8088` is refused). Never commit keys; never log keys, balances, prepare calldata, or RPC URLs.
+Plan-only mode needs no secrets. Testnet execute also requires **loopback** `LISTEN_ADDR` (`127.0.0.1`, `::1`, or `localhost` — bare `:8088` is refused). Never commit keys; never log keys, balances, prepare calldata, or RPC URLs. Optional `.env` is gitignored; `internal/envfile` loads without logging values.
 
 ## Common commands
 
