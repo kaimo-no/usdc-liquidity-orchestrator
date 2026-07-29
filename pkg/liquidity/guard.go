@@ -130,11 +130,9 @@ func checkPlanStep(s PlanStep, req Required, agent string, g *Guard) error {
 		return err
 	}
 	if fund {
-		if err := checkFundStep(s, req, agent, g); err != nil {
-			return err
-		}
+		return checkFundStep(s, req, agent, g)
 	}
-	return checkFeeStep(s, req)
+	return nil
 }
 
 func checkMaxAmounts(g *Guard, p Plan) error {
@@ -168,12 +166,13 @@ func checkMaxAmounts(g *Guard, p Plan) error {
 }
 
 // classifyStep returns whether the step is fund-moving, or an error for unknown kinds.
+// orchestrator_fee is intentionally not a valid step kind (fee is plan.fee only).
 func classifyStep(s PlanStep) (fundMoving bool, err error) {
 	k := strings.ToLower(strings.TrimSpace(s.Kind))
 	switch k {
 	case StepKindCircleGatewayWithdraw, StepKindCircleGatewayDeposit, StepKindCCTPBurn, StepKindCCTPMint:
 		return true, nil
-	case StepKindNote, StepKindOrchestratorFee:
+	case StepKindNote:
 		return false, nil
 	case "":
 		if strings.TrimSpace(s.Recipient) != "" {
@@ -217,25 +216,6 @@ func checkFundStep(s PlanStep, req Required, agent string, g *Guard) error {
 	if g != nil && len(g.AllowedAgentAddresses) > 0 && !agentAddrAllowed(g.AllowedAgentAddresses, rec, chain) {
 		return liqerr.New(liqerr.CodeInvalidQuery,
 			"liquidity: step recipient not in AllowedAgentAddresses")
-	}
-	return nil
-}
-
-func checkFeeStep(s PlanStep, req Required) error {
-	if strings.ToLower(strings.TrimSpace(s.Kind)) != StepKindOrchestratorFee {
-		return nil
-	}
-	if s.RecipientRole != RecipientRoleOrchestrator {
-		return liqerr.New(liqerr.CodeInvalidQuery,
-			"liquidity: orchestrator_fee step must use recipient_role=orchestrator, got %q", s.RecipientRole)
-	}
-	rec := strings.TrimSpace(s.Recipient)
-	if rec == "" {
-		return liqerr.New(liqerr.CodeInvalidQuery, "liquidity: orchestrator_fee step missing recipient")
-	}
-	if payTo := strings.TrimSpace(req.PayTo); payTo != "" && addrEqual(rec, payTo, req.ChainCAIP2) {
-		return liqerr.New(liqerr.CodeInvalidQuery,
-			"liquidity: fee recipient must not equal merchant pay_to")
 	}
 	return nil
 }

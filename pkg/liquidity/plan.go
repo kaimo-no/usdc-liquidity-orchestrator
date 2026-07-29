@@ -90,12 +90,11 @@ type Orchestration struct {
 }
 
 // FeeConfig is optional kaimo orchestration fee (post-prepare settle; not a fund rail).
+// Fee chain/asset always follow the plan Required claim.
 type FeeConfig struct {
-	Bps        int64
-	Recipient  string
-	SettleVia  string
-	ChainCAIP2 string
-	Asset      string
+	Bps       int64
+	Recipient string
+	SettleVia string // empty → x402
 }
 
 // PlanFee is fee metadata attached to a fund-moving plan.
@@ -499,14 +498,6 @@ func attachFee(p *Plan, shortfall decimal.Decimal, fee *FeeConfig) {
 	if settle == "" {
 		settle = SettleViaX402
 	}
-	chain := strings.TrimSpace(fee.ChainCAIP2)
-	if chain == "" {
-		chain = p.Required.ChainCAIP2
-	}
-	asset := strings.TrimSpace(fee.Asset)
-	if asset == "" {
-		asset = p.Required.Asset
-	}
 	// Fee lives only on plan.fee (envelope metadata for post-prepare x402 settle).
 	// Never append orchestrator_fee to steps[] — naive agents must not auto-execute it as a transfer.
 	p.Fee = &PlanFee{
@@ -515,15 +506,14 @@ func attachFee(p *Plan, shortfall decimal.Decimal, fee *FeeConfig) {
 		Recipient:     strings.TrimSpace(fee.Recipient),
 		RecipientRole: RecipientRoleOrchestrator,
 		SettleVia:     settle,
-		ChainCAIP2:    chain,
-		Asset:         asset,
+		ChainCAIP2:    p.Required.ChainCAIP2,
+		Asset:         p.Required.Asset,
 	}
 }
 
 func isFundMovingAction(a PlanAction) bool {
 	switch a {
-	case ActionCircleGatewayWithdraw, ActionCircleGatewayDepositWithdraw,
-		ActionCircleGatewayConsolidate, ActionCCTPFast:
+	case ActionCircleGatewayWithdraw, ActionCircleGatewayDepositWithdraw, ActionCCTPFast:
 		return true
 	default:
 		return false

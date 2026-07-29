@@ -12,11 +12,9 @@ type Required struct {
 	AmountAtomic        string `json:"amount_atomic,omitempty"`
 	AmountLogicalAtomic string `json:"amount_logical_atomic,omitempty"`
 	ScaleFactor         int64  `json:"scale_factor,omitempty"`
-	AmountHuman         string `json:"amount_human,omitempty"`
 	PayTo               string `json:"pay_to"`
 	PayToRole           string `json:"pay_to_role"`
 	Source              string `json:"source,omitempty"`
-	Incomplete          bool   `json:"incomplete,omitempty"`
 }
 
 // Orchestration is optional agent setup: target + allowed sources + rail preference.

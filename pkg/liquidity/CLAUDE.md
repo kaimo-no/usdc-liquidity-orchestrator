@@ -31,7 +31,8 @@ Testnet-ready: multi-chain **consolidate** deposits + unsigned **prepare_calls**
 - **`PlanPaymentFunding`**: full hard-coded funding — deposit each positive source real, withdraw full `payment_real` to agent_self; reason uses scenario full-funding language; not used by HTTP `/v1/plan`
 - Bare location `"gateway"` → ignored (invalid); use `circle_gateway`
 - Solana / unknown dest → `corridor_unsupported` (EVM registry-first)
-- Fee (`orchestrator` / `settle_via=x402`) is **plan.fee only** — not a fund rail recipient and **not** a step in `steps[]`
+- Fee (`orchestrator` / `settle_via=x402`) is **plan.fee only** — not a fund rail recipient; `orchestrator_fee` is **not** a valid step kind (injected fee steps → unknown kind refuse)
+- `FeeConfig` is bps + recipient (+ optional settle_via); fee chain/asset always follow plan `Required`
 - `agent_address == pay_to` refused on fund-moving plans (anti–confused-deputy)
 - Inventory amounts must be positive (zero/negative → `invalid_query`)
 - Dest-native shortfall uses same-chain USDC match (symbol `"USDC"` ↔ registry contract)

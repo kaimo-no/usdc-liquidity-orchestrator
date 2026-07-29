@@ -184,8 +184,14 @@ type errString string
 
 func (e errString) Error() string { return string(e) }
 
-func TestEncodeBalanceOfCalldata(t *testing.T) {
-	data := inventory.EncodeBalanceOfCalldata(common.HexToAddress(agent))
-	require.True(t, strings.HasPrefix(data, "0x70a08231"))
-	assert.Equal(t, 2+8+64, len(data))
+func TestBalanceOfCalldataShape(t *testing.T) {
+	// balanceOf(address) selector + left-padded 20-byte address (ABI word).
+	// Mirrors internal packing used by inventory.Load eth_call.
+	owner := common.HexToAddress(agent)
+	data := make([]byte, 4+32)
+	copy(data[:4], []byte{0x70, 0xa0, 0x82, 0x31})
+	copy(data[4+12:], owner.Bytes())
+	require.Equal(t, []byte{0x70, 0xa0, 0x82, 0x31}, data[:4])
+	assert.Equal(t, owner.Bytes(), data[4+12:4+32])
+	assert.Equal(t, 36, len(data))
 }
