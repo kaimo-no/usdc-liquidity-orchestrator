@@ -29,9 +29,12 @@ go run ./cmd/demo
 
 Primary path (when `PAYMENT_CHAIN` / scenario env is set): **full-funding** dry plan via `PlanPaymentFunding` — hard-coded `SOURCE_AMOUNT_*` deposits (scaled by `USDC_SCALE_FACTOR`) + withdraw full payment real to `agent_self`. Wire stamps `amount_atomic` (real) and optional `amount_logical_atomic` / `scale_factor`.
 
+When `AGENT_ADDRESS` (or key) and any testnet RPCs are set, demo tries **live inventory** (`balanceOf` + optional Gateway balances). Funding amounts remain hard-coded; live natives only gate “source real ≤ balance”. On load failure, falls back to asserted inventory from `SOURCE_AMOUNT_*`. Plans still stamp `inventory_unverified=true`.
+
 Also prints shortfall smoke (Arc Testnet `circle_gateway_withdraw` need 42 / native 20 → shortfall 22) and consolidate with unsigned `prepare_calls`.
 
 Legacy Base/Arb fragmented example: `examples/plan-base-fragmented.json`. Scenario path is **not** HTTP `/v1/plan`.
+
 ## HTTP server
 
 ```bash
@@ -45,7 +48,7 @@ curl -s localhost:8088/v1/chains | jq .
 
 The UI is a single embedded page (`internal/httpserver/static/index.html`): set your agent address and asserted balances, run dry plans. No private keys — inventory is client-asserted only.
 
-## Optional testnet deposit execute (local only)
+## Optional testnet Gateway execute (local only)
 
 Dual-gated; **not** for Docker default. See [`OPS.md`](./OPS.md).
 
@@ -56,14 +59,15 @@ export AGENT_PRIVATE_KEY=0x…        # throwaway testnet key; never commit
 export RPC_URL_BASE_SEPOLIA=https://sepolia.base.org
 # export RPC_URL_ARBITRUM_SEPOLIA=…
 # export RPC_URL_ARC_TESTNET=…
-# export RPC_URL_SOLANA_DEVNET=…    # ops placeholder; not used by EVM deposit execute
+# export RPC_URL_SOLANA_DEVNET=…    # ops placeholder; not used by EVM execute
+# export GATEWAY_API_BASE=https://gateway-api-testnet.circle.com
 # or CAIP form: RPC_URL_eip155_84532=… / RPC_URLS_JSON='{"eip155:84532":"https://…"}'
 go run ./cmd/server
-# demo live path (stderr tx hashes only):
+# demo live consolidate path (stderr tx hashes only):
 go run ./cmd/demo
 ```
 
-Copy [`.env.example`](./.env.example) for named placeholders. Requirements: inventory `agent_address` must match the key; only `circle_gateway_consolidate` deposit steps; mainnet RPCs refused; Solana RPC is stored for ops but not used by deposit execute yet.
+Copy [`.env.example`](./.env.example) for named placeholders. Requirements: inventory `agent_address` must match the key; supported live actions are consolidate, deposit_withdraw, and withdraw; deposits re-derive prepare calls; burn mints only to agent_self; mainnet RPCs refused; Solana RPC is stored for ops but not used by EVM execute yet. After deposits, wait for Gateway finality before transfer (executor retries `/v1/transfer`).
 
 ## VS Code / Cursor
 

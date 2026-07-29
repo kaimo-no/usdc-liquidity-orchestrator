@@ -9,7 +9,7 @@
 | Org | [`kaimo-no`](https://github.com/kaimo-no) |
 | Module | `github.com/kaimo-no/usdc-liquidity-orchestrator` |
 | License | Apache-2.0 |
-| Status | L0–L1 shipped · L2 fail-closed default · optional testnet deposit execute |
+| Status | L0–L1 shipped · L2 fail-closed default · optional testnet Gateway deposit + burn/mint |
 
 Docs for agents: **[`CLAUDE.md`](./CLAUDE.md)** · **[`AGENTS.md`](./AGENTS.md)** · **[`SETUP.md`](./SETUP.md)** · **[`OPS.md`](./OPS.md)**
 
@@ -63,7 +63,7 @@ wire := liquidity.PlanToWire(plan)
 
 ```text
 pkg/liquidity    pure planner + Guard + UnconfiguredExecutor
-pkg/execonchain  optional testnet-only Gateway deposit execute
+pkg/execonchain  optional testnet-only Gateway deposit + burn/mint execute
 pkg/types        wire JSON (+ optional ExecuteReceipt)
 pkg/errors       stable codes
 cmd/server       thin HTTP microservice
@@ -125,7 +125,7 @@ PR rules: [`.github/pr-review-instructions.md`](./.github/pr-review-instructions
 | Path | Role | Detail |
 |---|---|---|
 | `pkg/liquidity/` | Planner | [CLAUDE.md](./pkg/liquidity/CLAUDE.md) |
-| `pkg/execonchain/` | Testnet deposit execute | [CLAUDE.md](./pkg/execonchain/CLAUDE.md) |
+| `pkg/execonchain/` | Testnet Gateway deposit + burn/mint | [CLAUDE.md](./pkg/execonchain/CLAUDE.md) |
 | `pkg/types/` | Wire | [CLAUDE.md](./pkg/types/CLAUDE.md) |
 | `pkg/errors/` | Codes | [CLAUDE.md](./pkg/errors/CLAUDE.md) |
 | `cmd/server/` | HTTP | [CLAUDE.md](./cmd/server/CLAUDE.md) |

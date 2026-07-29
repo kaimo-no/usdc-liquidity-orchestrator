@@ -10,7 +10,7 @@ Pre-production / hackathon ops checklist for **usdc-liquidity-orchestrator**.
 - Optional local `.env` (gitignored): copy from `.env.example`; `internal/envfile` never logs values
 - Demo payment scenario (`PAYMENT_*`, `SOURCE_AMOUNT_*`, `USDC_SCALE_FACTOR`) is **CLI-only** — not applied to HTTP `/v1/plan`
 
-## Optional testnet deposit execute
+## Optional testnet Gateway execute
 
 **Dangerous:** signs and broadcasts real txs. Dual-gated and loopback-only.
 
@@ -19,11 +19,21 @@ Pre-production / hackathon ops checklist for **usdc-liquidity-orchestrator**.
 | `ENABLE_TESTNET_EXECUTE=1` | Explicit opt-in |
 | `AGENT_PRIVATE_KEY` | Hex ECDSA matching inventory `agent_address` |
 | Named RPCs | `RPC_URL_BASE_SEPOLIA`, `RPC_URL_ARBITRUM_SEPOLIA`, `RPC_URL_ARC_TESTNET` (EVM execute) |
-| `RPC_URL_SOLANA_DEVNET` | Placeholder only — not used by deposit execute today |
+| `RPC_URL_SOLANA_DEVNET` | Placeholder only — not used by EVM execute today |
 | Alternates | `RPC_URLS_JSON` or `RPC_URL_eip155_*` |
 | `LISTEN_ADDR` | Must be loopback (`127.0.0.1:8088`, `[::1]:8088`, `localhost:8088`) — bare `:8088` refused |
+| `GATEWAY_API_BASE` | Optional; default `https://gateway-api-testnet.circle.com` |
+| `GATEWAY_MAX_FEE_ATOMIC` | Optional burn-intent maxFee (default `2010000`) |
 
-Supported action: `circle_gateway_consolidate` deposit steps only. Signs **re-derived** prepare calls (not client calldata). Partial failures return hashes + `executed=false`.
+Supported actions:
+
+| Action | Behaviour |
+|---|---|
+| `circle_gateway_consolidate` | Deposit steps only; signs **re-derived** prepare calls |
+| `circle_gateway_deposit_withdraw` | Deposits, then EIP-712 burn intents + `POST /v1/transfer` + `gatewayMint` on dest |
+| `circle_gateway_withdraw` | Burn intent + transfer + mint (no deposits) |
+
+Burn/mint `destinationRecipient` is always the agent (never merchant `pay_to`). Partial failures return hashes + `executed=false`. After deposits, transfer API is retried (default 5×) because Gateway needs deposit finality before balances are transferable.
 
 ```bash
 # Example (local only — never commit key):
@@ -38,6 +48,10 @@ go run ./cmd/server
 ```
 
 See [`.env.example`](./.env.example) for all placeholders.
+
+## Live inventory (demo only)
+
+`cmd/demo` scenario plan may call `internal/inventory.Load` when `AGENT_ADDRESS` / key and testnet RPCs are set: ERC-20 `balanceOf` USDC + optional Gateway `POST /v1/balances` (domains 3, 6, 26). Hard-coded `SOURCE_AMOUNT_*` reals still drive funding; each source real must not exceed live native on that chain (`insufficient_liquidity`). Dry plans still stamp `inventory_unverified=true`. Never log balances or RPC URLs.
 
 Docker must **not** enable execute by default. Do not pass keys into images.
 
