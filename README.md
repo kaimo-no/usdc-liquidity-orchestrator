@@ -34,10 +34,10 @@ git clone https://github.com/kaimo-no/usdc-liquidity-orchestrator.git
 cd usdc-liquidity-orchestrator
 go test ./...
 go run ./cmd/demo
-go run ./cmd/server   # :8088 — open http://127.0.0.1:8088/ for the plan UI
+go run ./cmd/server   # :8088 — open http://127.0.0.1:8088/ (scenario / plan / consolidate UI)
 bash examples/curl.sh
 
-# or containerized:
+# or containerized (plan-only; no execute secrets):
 docker compose up --build
 ```
 
@@ -52,8 +52,10 @@ wire := liquidity.PlanToWire(plan)
 
 ### HTTP
 
-`POST /v1/plan` — see [`examples/plan.json`](./examples/plan.json) (Arc Testnet + Gateway)  
-`POST /v1/consolidate` — multi-chain full-balance Gateway deposits + unsigned `prepare_calls` ([`examples/consolidate-testnet.json`](./examples/consolidate-testnet.json))  
+`GET /` — MVP UI (scenario full-funding, shortfall plan, consolidate, chains)  
+`POST /v1/payment-funding` — scenario full hard-coded multi-source deposits + withdraw (scale stamps)  
+`POST /v1/plan` — shortfall-only rebalance ([`examples/plan.json`](./examples/plan.json))  
+`POST /v1/consolidate` — full-balance Gateway deposits + unsigned `prepare_calls` ([`examples/consolidate-testnet.json`](./examples/consolidate-testnet.json))  
 `GET /v1/chains` — registered corridors (CAIP-2, USDC, Gateway domain, testnet, gateway_wallet)  
 `GET /healthz`
 

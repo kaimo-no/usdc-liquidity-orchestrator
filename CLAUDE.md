@@ -20,7 +20,7 @@ It does **not** take product custody and does **not** route funds through a plat
 | L0 wire types (`pkg/types`) | shipped |
 | L1 pure planner (`pkg/liquidity`) | shipped — shortfall-only + scenario full-funding (`PlanPaymentFunding`) |
 | L2 execute | fail-closed default; optional **testnet-only** Gateway deposit + burn/mint (`pkg/execonchain`) |
-| HTTP microservice (`cmd/server`) | `GET /` plan UI, `POST /v1/plan`, `POST /v1/consolidate`, `GET /v1/chains`, `GET /healthz` |
+| HTTP microservice (`cmd/server`) | `GET /` UI, `POST /v1/plan`, `POST /v1/payment-funding`, `POST /v1/consolidate`, `GET /v1/chains`, `GET /healthz` |
 | CLI demo (`cmd/demo`) | env payment scenario full-funding dry plan (+ optional live inventory) + shortfall smoke + consolidate (+ optional live testnet execute) |
 
 Related private monorepo: `kaimo-no/kaimo-go` (World B commerce router can call this as a library or HTTP service). **This repo has zero import of kaimo-go.**

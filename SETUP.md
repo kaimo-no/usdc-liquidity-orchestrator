@@ -82,10 +82,19 @@ Configs live in [`.vscode/launch.json`](./.vscode/launch.json).
 
 ## Docker
 
-Multi-stage image builds a static `cmd/server` binary (distroless, non-root). No secrets required for plan-only mode.
+Multi-stage image builds a static `cmd/server` binary (distroless, non-root). **Plan-only by default** — no secrets required. The UI supports:
+
+| Tab | Endpoint |
+|---|---|
+| Scenario | `POST /v1/payment-funding` (full hard-coded sources + scale) |
+| Plan | `POST /v1/plan` (shortfall-only) |
+| Consolidate | `POST /v1/consolidate` |
+| Chains | `GET /v1/chains` |
 
 ```bash
 docker compose up --build
+# UI:
+open http://127.0.0.1:8088/
 # or:
 docker build -t usdc-liquidity-orchestrator:local .
 docker run --rm -p 8088:8088 usdc-liquidity-orchestrator:local
@@ -99,6 +108,8 @@ bash examples/curl.sh
 ```
 
 Bind address inside the container is `LISTEN_ADDR` (default `:8088`); map host port `8088` as above.
+
+**Live execute is not enabled in Compose.** Dual-gate needs loopback `LISTEN_ADDR` + `AGENT_PRIVATE_KEY` + RPCs — use host `go run ./cmd/server` (see Optional testnet deposit execute). Never bake keys into the image.
 
 ## Agent / IDE
 

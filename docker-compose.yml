@@ -1,8 +1,31 @@
+# Plan-only HTTP UI by default (distroless cmd/server).
+# Live execute is intentionally NOT enabled here: dual-gate requires loopback
+# LISTEN_ADDR + AGENT_PRIVATE_KEY + RPCs (use host go run ./cmd/server for that).
+#
+#   docker compose up --build
+#   open http://127.0.0.1:8088/
+#
+# Optional: create .env from .env.example for documentation only — secrets are
+# not required for plan/scenario dry mode and must never be committed.
+
 services:
   orchestrator:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     image: usdc-liquidity-orchestrator:local
+    container_name: usdc-liquidity-orchestrator
     ports:
       - "8088:8088"
     environment:
+      # Bind all interfaces inside the container (mapped to host 8088).
       LISTEN_ADDR: ":8088"
+      # Execute stays off: bare :8088 is not loopback, so ENABLE_TESTNET_EXECUTE
+      # would be refused even if set. Do not pass AGENT_PRIVATE_KEY into Docker.
+      # ENABLE_TESTNET_EXECUTE: "0"
+    # Plan-only: no env_file required. Uncomment only for non-secret operator knobs.
+    # env_file:
+    #   - .env
+    restart: unless-stopped
+    # Distroless has no shell/curl; probe from the host:
+    #   curl -sf http://127.0.0.1:8088/healthz

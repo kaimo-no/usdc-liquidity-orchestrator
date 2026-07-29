@@ -9,7 +9,10 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"strings"
 	"time"
+
+	"github.com/shopspring/decimal"
 
 	liqerr "github.com/kaimo-no/usdc-liquidity-orchestrator/pkg/errors"
 	"github.com/kaimo-no/usdc-liquidity-orchestrator/pkg/liquidity"
@@ -47,6 +50,7 @@ func NewMuxWithOptions(opts MuxOptions) http.Handler {
 	mux.HandleFunc("GET /v1/chains", handleChains)
 	mux.HandleFunc("POST /v1/plan", s.handlePlan)
 	mux.HandleFunc("POST /v1/consolidate", s.handleConsolidate)
+	mux.HandleFunc("POST /v1/payment-funding", s.handlePaymentFunding)
 
 	staticRoot, err := fs.Sub(staticEmbed, "static")
 	if err != nil {
@@ -88,7 +92,7 @@ func handleChains(w http.ResponseWriter, _ *http.Request) {
 func (s *server) handlePlan(w http.ResponseWriter, r *http.Request) {
 	var req types.PlanRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, liqerr.CodeInvalidQuery, "invalid JSON body")
+		writeErr(w, liqerr.CodeInvalidQuery, "invalid JSON body")
 		return
 	}
 
@@ -118,7 +122,7 @@ func (s *server) handlePlan(w http.ResponseWriter, r *http.Request) {
 func (s *server) handleConsolidate(w http.ResponseWriter, r *http.Request) {
 	var req types.ConsolidateRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, liqerr.CodeInvalidQuery, "invalid JSON body")
+		writeErr(w, liqerr.CodeInvalidQuery, "invalid JSON body")
 		return
 	}
 
@@ -130,6 +134,51 @@ func (s *server) handleConsolidate(w http.ResponseWriter, r *http.Request) {
 	orch := liquidity.OrchestrationFromWire(req.Orchestration)
 
 	plan, err := liquidity.PlanConsolidate(inv, orch, nil)
+	if err != nil {
+		writeCoded(w, err)
+		return
+	}
+
+	s.stampAndWrite(w, r, plan, req.Execute)
+}
+
+// handlePaymentFunding plans scenario full-funding (hard-coded multi-source deposits + withdraw).
+// Unlike /v1/plan (shortfall-only), this path moves explicit source amounts then full payment_real.
+func (s *server) handlePaymentFunding(w http.ResponseWriter, r *http.Request) {
+	var req types.PaymentFundingRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
+		writeErr(w, liqerr.CodeInvalidQuery, "invalid JSON body")
+		return
+	}
+
+	required, err := liquidity.RequiredFromWire(&req.Required, "")
+	if err != nil {
+		writeCoded(w, err)
+		return
+	}
+	// Optional logical / scale stamps from wire required envelope.
+	if log := strings.TrimSpace(req.Required.AmountLogicalAtomic); log != "" {
+		// RequiredFromWire already set AmountAtomic (real). Attach logical for PlanToWire.
+		if d, err := decimal.NewFromString(log); err == nil && d.IsPositive() && d.Equal(d.Truncate(0)) {
+			required.AmountLogicalAtomic = d.Truncate(0)
+		}
+	}
+	if req.Required.ScaleFactor > 0 {
+		required.ScaleFactor = req.Required.ScaleFactor
+	}
+
+	inv, err := liquidity.InventoryFromWire(req.Inventory)
+	if err != nil {
+		writeCoded(w, err)
+		return
+	}
+	sources, err := liquidity.FundingSourcesFromWire(req.Sources)
+	if err != nil {
+		writeCoded(w, err)
+		return
+	}
+
+	plan, err := liquidity.PlanPaymentFunding(required, inv, sources, nil)
 	if err != nil {
 		writeCoded(w, err)
 		return
@@ -237,11 +286,11 @@ func writeCoded(w http.ResponseWriter, err error) {
 	if errors.As(err, &e) && e != nil && e.Message != "" {
 		msg = e.Message
 	}
-	writeErr(w, http.StatusBadRequest, code, msg)
+	writeErr(w, code, msg)
 }
 
-func writeErr(w http.ResponseWriter, status int, code, msg string) {
-	writeJSON(w, status, types.PlanResponse{
+func writeErr(w http.ResponseWriter, code, msg string) {
+	writeJSON(w, http.StatusBadRequest, types.PlanResponse{
 		Error: &types.APIError{Code: code, Message: msg},
 	})
 }
