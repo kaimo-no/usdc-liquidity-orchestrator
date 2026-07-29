@@ -54,13 +54,17 @@ const (
 )
 
 // Required is the dest-chain USDC need (+ optional amount override rules).
+// AmountAtomic is always the real on-chain amount used for planning.
+// AmountLogicalAtomic + ScaleFactor are optional scenario wire stamps.
 type Required struct {
-	Protocol     string
-	ChainCAIP2   string
-	Asset        string
-	PayTo        string
-	AmountAtomic decimal.Decimal
-	AmountSource string
+	Protocol            string
+	ChainCAIP2          string
+	Asset               string
+	PayTo               string
+	AmountAtomic        decimal.Decimal
+	AmountSource        string
+	AmountLogicalAtomic decimal.Decimal
+	ScaleFactor         int64
 }
 
 // Balance is one asserted inventory row.
@@ -106,15 +110,18 @@ type PlanFee struct {
 }
 
 // PlanStep is one planned fund movement (agent_self recipients only for fund rails).
+// AmountAtomic is always real; AmountLogicalAtomic + ScaleFactor are optional scenario stamps.
 type PlanStep struct {
-	Kind           string
-	FromChainCAIP2 string
-	ToChainCAIP2   string
-	Asset          string
-	AmountAtomic   decimal.Decimal
-	Recipient      string
-	RecipientRole  string
-	PrepareCalls   []PrepareCall
+	Kind                string
+	FromChainCAIP2      string
+	ToChainCAIP2        string
+	Asset               string
+	AmountAtomic        decimal.Decimal
+	AmountLogicalAtomic decimal.Decimal
+	ScaleFactor         int64
+	Recipient           string
+	RecipientRole       string
+	PrepareCalls        []PrepareCall
 }
 
 // Plan is the pure planner output (Executed always false from PlanLiquidity).
@@ -702,7 +709,7 @@ func PlanToWire(p Plan) types.Plan {
 				})
 			}
 		}
-		steps = append(steps, types.PlanStep{
+		stepWire := types.PlanStep{
 			Kind:           s.Kind,
 			FromChainCAIP2: s.FromChainCAIP2,
 			ToChainCAIP2:   s.ToChainCAIP2,
@@ -711,7 +718,14 @@ func PlanToWire(p Plan) types.Plan {
 			Recipient:      s.Recipient,
 			RecipientRole:  s.RecipientRole,
 			PrepareCalls:   calls,
-		})
+		}
+		if s.AmountLogicalAtomic.IsPositive() {
+			stepWire.AmountLogicalAtomic = s.AmountLogicalAtomic.String()
+		}
+		if s.ScaleFactor > 0 {
+			stepWire.ScaleFactor = s.ScaleFactor
+		}
+		steps = append(steps, stepWire)
 	}
 	var reqWire *types.Required
 	if p.Required.PayTo != "" {
@@ -727,6 +741,12 @@ func PlanToWire(p Plan) types.Plan {
 			PayTo:        p.Required.PayTo,
 			PayToRole:    RecipientRoleMerchant,
 			Source:       src,
+		}
+		if p.Required.AmountLogicalAtomic.IsPositive() {
+			reqWire.AmountLogicalAtomic = p.Required.AmountLogicalAtomic.String()
+		}
+		if p.Required.ScaleFactor > 0 {
+			reqWire.ScaleFactor = p.Required.ScaleFactor
 		}
 	}
 	var feeWire *types.Fee

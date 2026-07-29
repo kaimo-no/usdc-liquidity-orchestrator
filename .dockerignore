@@ -10,6 +10,7 @@ coverage.out
 .DS_Store
 kaimo-pr.diff
 pr.diff
+.env
 
 # Docs and local tooling (not needed to compile cmd/server)
 *.md

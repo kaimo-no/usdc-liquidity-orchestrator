@@ -7,6 +7,8 @@ Pre-production / hackathon ops checklist for **usdc-liquidity-orchestrator**.
 - No secrets required
 - `cmd/server` is stateless; safe to run ephemerally
 - Inventory is request-scoped — do not persist balances server-side
+- Optional local `.env` (gitignored): copy from `.env.example`; `internal/envfile` never logs values
+- Demo payment scenario (`PAYMENT_*`, `SOURCE_AMOUNT_*`, `USDC_SCALE_FACTOR`) is **CLI-only** — not applied to HTTP `/v1/plan`
 
 ## Optional testnet deposit execute
 

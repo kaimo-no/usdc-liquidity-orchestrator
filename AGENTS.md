@@ -36,7 +36,7 @@ Public Go library + thin HTTP service: **non-custodial multi-chain USDC liquidit
 ## Hard rules (summary)
 
 - agent_self recipients only; never pay_to as bridge dest  
-- shortfall-only rebalance  
+- shortfall-only rebalance (`PlanOrchestration`); scenario full-funding via `PlanPaymentFunding` (demo only)  
 - dry plans never claim funded  
 - deposit-only consolidate may omit pay_to; withdraw/cctp still require it  
 - `decimal.Decimal` atomic units, no float64  
