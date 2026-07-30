@@ -76,8 +76,8 @@ func demoScenarioPlan(stdout, stderr io.Writer) (bool, int) {
 
 	fmt.Fprintf(stderr, "\n# scenario action=%s dry_run=%v executed=%v scale=%d steps=%d\n",
 		plan.Action, plan.DryRun, plan.Executed, s.ScaleFactor, len(plan.Steps))
-	fmt.Fprintf(stderr, "# dest=%s full-funding deposits + withdraw to agent_self (never merchant pay_to)\n",
-		s.PaymentChainCAIP2)
+	fmt.Fprintf(stderr, "# Phase A: deposit hard-coded sources into circle_gateway (agent_self only)\n")
+	fmt.Fprintf(stderr, "# after deposit execute wait ~13-19m finality then Phase B withdraw separately\n")
 	fmt.Fprintf(stderr, "# amount_atomic is REAL; amount_logical_atomic + scale_factor stamped when set\n")
 	fmt.Fprintf(stderr, "# inventory_unverified=%v (live load never stamps verified)\n", plan.InventoryUnverified)
 	return true, 0
@@ -143,19 +143,16 @@ func demoShortfallPlan(stdout, stderr io.Writer) int {
 	const (
 		arc     = "eip155:5042002"
 		arcUSDC = "0x3600000000000000000000000000000000000000"
-		payTo   = "0xMerchantOnArc000000000000000000000001"
 		agent   = "0xAgentSelf000000000000000000000000000001"
 		feeTo   = "0xKaimoFee000000000000000000000000000001"
 		need    = "42000000"
 	)
 
 	req := liquidity.Required{
-		Protocol:     "x402",
 		ChainCAIP2:   arc,
 		Asset:        arcUSDC,
-		PayTo:        payTo,
 		AmountAtomic: decimal.RequireFromString(need),
-		AmountSource: liquidity.AmountSourceProbe,
+		AmountSource: liquidity.AmountSourceSelf,
 	}
 	inv := liquidity.Inventory{
 		AgentAddress: agent,
@@ -185,8 +182,8 @@ func demoShortfallPlan(stdout, stderr io.Writer) int {
 	_ = enc.Encode(wire)
 
 	fmt.Fprintf(stderr, "\n# action=%s dry_run=%v executed=%v\n", plan.Action, plan.DryRun, plan.Executed)
-	fmt.Fprintf(stderr, "# target=Arc Testnet (%s) source=circle_gateway shortfall=22 USDC → agent_self\n", arc)
-	fmt.Fprintf(stderr, "# recipients on fund rails are always agent_self (%s), never merchant pay_to\n", agent)
+	fmt.Fprintf(stderr, "# Phase B: target=Arc Testnet (%s) source=circle_gateway shortfall=22 USDC → agent_self\n", arc)
+	fmt.Fprintf(stderr, "# recipients on fund rails are always agent_self (%s)\n", agent)
 	if plan.Fee != nil {
 		fmt.Fprintf(stderr, "# kaimo fee %s bps amount_atomic=%s settle_via=%s → %s\n",
 			fmt.Sprint(plan.Fee.Bps), plan.Fee.AmountAtomic.String(), plan.Fee.SettleVia, plan.Fee.Recipient)

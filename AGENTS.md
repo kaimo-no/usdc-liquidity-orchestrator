@@ -36,9 +36,9 @@ Public Go library + CLI + thin HTTP service (equal peers) + product skill: **non
 ## Hard rules (summary)
 
 - agent_self recipients only; never pay_to as bridge dest  
-- shortfall-only rebalance (`PlanOrchestration`); scenario full-funding via `PlanPaymentFunding` (demo only)  
+- Phase B shortfall (`PlanOrchestration` / move); Phase A deposits via deposit/consolidate/`PlanPaymentFunding`  
 - dry plans never claim funded  
-- deposit-only consolidate may omit pay_to; withdraw/cctp still require it  
+- empty pay_to OK for agent_self withdraw/cctp; never auto-insert deposit+withdraw  
 - `decimal.Decimal` atomic units, no float64  
 - tests under `tests/` as `package *_test`  
 - live execute (optional): testnet deposit + burn/mint; re-derived prepare_calls; agent_self only; loopback + dual gate  

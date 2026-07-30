@@ -27,7 +27,6 @@ func clearScenarioEnv(t *testing.T) {
 		scenario.EnvPaymentProtocol,
 		scenario.EnvPaymentChain,
 		scenario.EnvPaymentAmountUSDC,
-		scenario.EnvPaymentPayTo,
 		scenario.EnvSourceAmountBaseSepolia,
 		scenario.EnvSourceAmountArbSepolia,
 		scenario.EnvSourceAmountArcTestnet,
@@ -46,7 +45,6 @@ func setHappyScenario(t *testing.T) {
 	t.Setenv(scenario.EnvPaymentProtocol, "x402")
 	t.Setenv(scenario.EnvPaymentChain, "eip155:84532")
 	t.Setenv(scenario.EnvPaymentAmountUSDC, "400")
-	t.Setenv(scenario.EnvPaymentPayTo, merchantPayTo)
 	t.Setenv(scenario.EnvSourceAmountBaseSepolia, "300")
 	t.Setenv(scenario.EnvSourceAmountArbSepolia, "100")
 	t.Setenv(scenario.EnvSourceAmountArcTestnet, "0")
@@ -81,7 +79,6 @@ func TestLoadFromEnv_T2_FloorDesync_InvalidQuery(t *testing.T) {
 	t.Setenv(scenario.EnvScaleFactor, "3")
 	t.Setenv(scenario.EnvPaymentChain, "eip155:84532")
 	t.Setenv(scenario.EnvPaymentAmountUSDC, "4")
-	t.Setenv(scenario.EnvPaymentPayTo, merchantPayTo)
 	t.Setenv(scenario.EnvSourceAmountBaseSepolia, "2")
 	t.Setenv(scenario.EnvSourceAmountArbSepolia, "2")
 	t.Setenv(scenario.EnvAgentAddress, agentAddr)
@@ -114,12 +111,11 @@ func TestLoadFromEnv_T4_SumMismatch(t *testing.T) {
 	assert.Contains(t, err.Error(), "logical")
 }
 
-func TestLoadFromEnv_T5_EmptyPayTo(t *testing.T) {
+func TestLoadFromEnv_T5_NoPayToRequired(t *testing.T) {
 	setHappyScenario(t)
-	t.Setenv(scenario.EnvPaymentPayTo, "")
-	_, err := scenario.LoadFromEnv()
-	require.Error(t, err)
-	assert.Equal(t, liqerr.CodeInsufficientLiquidity, liqerr.CodeOf(err))
+	s, err := scenario.LoadFromEnv()
+	require.NoError(t, err)
+	assert.Empty(t, s.BuildRequired().PayTo)
 }
 
 func TestLoadFromEnv_T6_EmptyAgent(t *testing.T) {
@@ -132,22 +128,12 @@ func TestLoadFromEnv_T6_EmptyAgent(t *testing.T) {
 	assert.Contains(t, err.Error(), "agent")
 }
 
-func TestLoadFromEnv_T7_AgentEqualsPayTo(t *testing.T) {
-	setHappyScenario(t)
-	t.Setenv(scenario.EnvAgentAddress, merchantPayTo)
-	_, err := scenario.LoadFromEnv()
-	require.Error(t, err)
-	assert.Equal(t, liqerr.CodeInvalidQuery, liqerr.CodeOf(err))
-	assert.Contains(t, err.Error(), "PAYMENT_PAY_TO")
-}
-
 func TestLoadFromEnv_T8_DestChainSourceOK(t *testing.T) {
 	// All sources on payment chain (Base Sepolia) — allowed for full-funding.
 	clearScenarioEnv(t)
 	t.Setenv(scenario.EnvScaleFactor, "1")
 	t.Setenv(scenario.EnvPaymentChain, "eip155:84532")
 	t.Setenv(scenario.EnvPaymentAmountUSDC, "50")
-	t.Setenv(scenario.EnvPaymentPayTo, merchantPayTo)
 	t.Setenv(scenario.EnvSourceAmountBaseSepolia, "50")
 	t.Setenv(scenario.EnvAgentAddress, agentAddr)
 
@@ -161,9 +147,9 @@ func TestLoadFromEnv_T8_DestChainSourceOK(t *testing.T) {
 	req := s.BuildRequired()
 	p, err := liquidity.PlanPaymentFunding(req, inv, s.FundingSources(), nil)
 	require.NoError(t, err)
-	assert.Equal(t, liquidity.ActionCircleGatewayDepositWithdraw, p.Action)
-	// deposit on dest + withdraw
-	require.Len(t, p.Steps, 2)
+	assert.Equal(t, liquidity.ActionCircleGatewayDeposit, p.Action)
+	// Phase A: deposit only
+	require.Len(t, p.Steps, 1)
 	assert.Equal(t, liquidity.StepKindCircleGatewayDeposit, p.Steps[0].Kind)
 	assert.Equal(t, "eip155:84532", p.Steps[0].FromChainCAIP2)
 }

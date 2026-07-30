@@ -11,7 +11,7 @@ Testnet-ready: multi-chain **consolidate** deposits + unsigned **prepare_calls**
 | `RequiredFromWire` | Build `Required` from merchant-claim wire; amount override only when amount missing |
 | `PlanLiquidity` | Dry plan (nil orchestration/fee) → delegates to `PlanOrchestration` |
 | `PlanOrchestration` | Shortfall-only rebalance + `Orchestration` + optional `FeeConfig` |
-| `PlanPaymentFunding` | Scenario full-funding (not shortfall): hard-coded source deposits + full withdraw |
+| `PlanPaymentFunding` | Scenario Phase A multi-source deposits only (not shortfall; no withdraw) |
 | `PlanConsolidate` | Full-balance Gateway deposits (no pay_to/fee); action `circle_gateway_consolidate` |
 | `PlanGatewayDeposit` | Fixed-N single-source Gateway deposit (no pay_to/fee); hard underfund error |
 | `PlanSelfRebalance` | Land N on dest agent_self shortfall-only (empty pay_to; `selfRebalance`) |
@@ -30,7 +30,7 @@ Testnet-ready: multi-chain **consolidate** deposits + unsigned **prepare_calls**
 - Fund steps: `RecipientRole=agent_self`, `Recipient=AgentAddress`
 - Never step.Recipient = Required.PayTo; never platform MoR as fund dest
 - Shortfall = required − dest native; steps move shortfall only (`PlanOrchestration`)
-- **`PlanPaymentFunding`**: full hard-coded funding — deposit each positive source real, withdraw full `payment_real` to agent_self; reason uses scenario full-funding language; not used by HTTP `/v1/plan`
+- **`PlanPaymentFunding`**: Phase A hard-coded deposits only — no withdraw; wait finality then Phase B separately
 - Bare location `"gateway"` → ignored (invalid); use `circle_gateway`
 - Solana / unknown dest → `corridor_unsupported` (EVM registry-first)
 - Fee (`orchestrator` / `settle_via=x402`) is **plan.fee only** — not a fund rail recipient; `orchestrator_fee` is **not** a valid step kind (injected fee steps → unknown kind refuse)
@@ -38,11 +38,7 @@ Testnet-ready: multi-chain **consolidate** deposits + unsigned **prepare_calls**
 - `agent_address == pay_to` refused on fund-moving plans (anti–confused-deputy)
 - Inventory amounts must be positive (zero/negative → `invalid_query`)
 - Dest-native shortfall uses same-chain USDC match (symbol `"USDC"` ↔ registry contract)
-- `CheckPlan` dual predicates:
-  - **requiresMerchantClaim**: any withdraw / cctp_burn / cctp_mint → empty pay_to refuse **unless** `Plan.selfRebalance` (PlanSelfRebalance only)
-  - **fund-moving** (incl. deposit): agent_self, recipient==agent, MaxAmountAtomic, kind allowlist
-  - deposit-only (consolidate / fixed deposit) may have empty pay_to
-  - self-rebalance + non-empty pay_to → invalid_query
+- `CheckPlan`: all fund steps agent_self; empty pay_to OK for withdraw/cctp/deposit; residual pay_to never fund dest
 - Deposit steps attach advisory `prepare_calls` (approve+deposit); pure-Go ABI; not re-checked by Guard
 - Atomic `decimal.Decimal` without `Round(2)`
 

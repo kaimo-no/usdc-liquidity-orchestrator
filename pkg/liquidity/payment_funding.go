@@ -9,7 +9,7 @@ import (
 	liqerr "github.com/kaimo-no/usdc-liquidity-orchestrator/pkg/errors"
 )
 
-// FundingSource is one hard-coded deposit for scenario full-funding plans.
+// FundingSource is one hard-coded deposit for scenario Phase A funding plans.
 // AmountAtomic is the real on-chain amount; AmountLogicalAtomic is optional wire stamp metadata.
 type FundingSource struct {
 	ChainCAIP2          string
@@ -17,15 +17,14 @@ type FundingSource struct {
 	AmountLogicalAtomic decimal.Decimal // logical (pre-scale); zero omits wire stamp
 }
 
-// PlanPaymentFunding plans full hard-coded funding (not shortfall-only).
+// PlanPaymentFunding plans Phase A multi-source fixed deposits only (not shortfall, not composite).
 //
-// Action is always circle_gateway_deposit_withdraw when sources are valid:
-// one circle_gateway_deposit per positive source (real amount) with prepare_calls,
-// then one circle_gateway_withdraw of the full required real amount to agent_self on dest.
+// Action is circle_gateway_deposit when sources are valid: one circle_gateway_deposit per
+// positive source (real amount) with prepare_calls. No withdraw step — after deposit execute,
+// agents wait Gateway finality (~13–19m) then plan Phase B withdraw separately.
 //
-// Dest-chain sources are allowed (deposit from dest then withdraw full payment).
+// pay_to is optional residual only; fund recipients are always agent_self.
 // Dry stamps always: dry_run=true, executed=false, inventory_asserted/unverified=true.
-// PlanOrchestration shortfall path is unchanged.
 func PlanPaymentFunding(req Required, inv Inventory, sources []FundingSource, g *Guard) (Plan, error) {
 	if err := validateRequired(req); err != nil {
 		return Plan{}, err
@@ -38,7 +37,7 @@ func PlanPaymentFunding(req Required, inv Inventory, sources []FundingSource, g 
 		return Plan{}, liqerr.New(liqerr.CodeInvalidQuery,
 			"liquidity: agent_address required to plan payment funding (agent_self recipient)")
 	}
-	if addrEqual(agent, req.PayTo, req.ChainCAIP2) {
+	if payTo := strings.TrimSpace(req.PayTo); payTo != "" && addrEqual(agent, payTo, req.ChainCAIP2) {
 		return Plan{}, liqerr.New(liqerr.CodeInvalidQuery,
 			"liquidity: agent_address must not equal pay_to (anti–confused-deputy)")
 	}
@@ -51,7 +50,7 @@ func PlanPaymentFunding(req Required, inv Inventory, sources []FundingSource, g 
 		return base, nil
 	}
 
-	// Normalize + validate sources; sum reals must equal payment real (full funding).
+	// Normalize + validate sources; sum reals must equal payment real (scenario bookkeeping).
 	norm, sumReal, err := normalizeFundingSources(sources)
 	if err != nil {
 		return Plan{}, err
@@ -65,7 +64,7 @@ func PlanPaymentFunding(req Required, inv Inventory, sources []FundingSource, g 
 			"liquidity: sum(source_real) must equal payment_real for scenario full-funding")
 	}
 
-	steps := make([]PlanStep, 0, len(norm)+1)
+	steps := make([]PlanStep, 0, len(norm))
 	for _, src := range norm {
 		asset := stepAssetForChain("", src.ChainCAIP2, req.Asset)
 		if u, ok := DefaultUSDC(src.ChainCAIP2); ok {
@@ -86,21 +85,11 @@ func PlanPaymentFunding(req Required, inv Inventory, sources []FundingSource, g 
 			RecipientRole:       RecipientRoleAgentSelf,
 		})
 	}
-	steps = append(steps, PlanStep{
-		Kind:                StepKindCircleGatewayWithdraw,
-		ToChainCAIP2:        req.ChainCAIP2,
-		Asset:               req.Asset,
-		AmountAtomic:        req.AmountAtomic,
-		AmountLogicalAtomic: req.AmountLogicalAtomic,
-		ScaleFactor:         req.ScaleFactor,
-		Recipient:           agent,
-		RecipientRole:       RecipientRoleAgentSelf,
-	})
 
 	base := dryBase(req, inv)
-	base.Action = ActionCircleGatewayDepositWithdraw
+	base.Action = ActionCircleGatewayDeposit
 	base.RecipientRole = RecipientRoleAgentSelf
-	base.Reason = "scenario full-funding: deposit hard-coded source reals into circle_gateway then withdraw full payment_real to agent_self on dest"
+	base.Reason = "scenario Phase A: deposit hard-coded source reals into circle_gateway (agent_self); wait finality then Phase B withdraw"
 	base.Steps = steps
 
 	if err := attachDepositPrepareCallsOnPlan(&base); err != nil {

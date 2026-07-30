@@ -21,7 +21,6 @@ const (
 	EnvPaymentProtocol         = "PAYMENT_PROTOCOL"
 	EnvPaymentChain            = "PAYMENT_CHAIN"
 	EnvPaymentAmountUSDC       = "PAYMENT_AMOUNT_USDC"
-	EnvPaymentPayTo            = "PAYMENT_PAY_TO"
 	EnvSourceAmountBaseSepolia = "SOURCE_AMOUNT_BASE_SEPOLIA"
 	EnvSourceAmountArbSepolia  = "SOURCE_AMOUNT_ARBITRUM_SEPOLIA"
 	EnvSourceAmountArcTestnet  = "SOURCE_AMOUNT_ARC_TESTNET"
@@ -37,11 +36,11 @@ type Source struct {
 	RealAtomic    decimal.Decimal
 }
 
-// Scenario is a fully validated env payment claim + hard-coded sources (real amounts).
+// Scenario is a fully validated env Phase A payment land amount + hard-coded sources (real amounts).
+// No merchant pay_to — deposits fund agent_self Gateway only.
 type Scenario struct {
 	Protocol             string
 	PaymentChainCAIP2    string
-	PayTo                string
 	AgentAddress         string
 	ScaleFactor          int64
 	PaymentLogicalAtomic decimal.Decimal
@@ -50,7 +49,7 @@ type Scenario struct {
 }
 
 // LoadFromEnv reads payment scenario env vars, applies scale, and validates
-// sum(source_real) == payment_real. Never logs values.
+// sum(source_real) == payment_real. Never logs values. PAYMENT_PAY_TO is ignored if set.
 func LoadFromEnv() (Scenario, error) {
 	if err := validateSourceMode(); err != nil {
 		return Scenario{}, err
@@ -59,11 +58,11 @@ func LoadFromEnv() (Scenario, error) {
 	if err != nil {
 		return Scenario{}, err
 	}
-	protocol, chain, payTo, payLogical, payReal, err := loadPaymentClaim(scale)
+	protocol, chain, payLogical, payReal, err := loadPaymentClaim(scale)
 	if err != nil {
 		return Scenario{}, err
 	}
-	agent, err := requireAgent(payTo)
+	agent, err := requireAgent()
 	if err != nil {
 		return Scenario{}, err
 	}
@@ -74,7 +73,6 @@ func LoadFromEnv() (Scenario, error) {
 	return Scenario{
 		Protocol:             protocol,
 		PaymentChainCAIP2:    chain,
-		PayTo:                payTo,
 		AgentAddress:         agent,
 		ScaleFactor:          scale,
 		PaymentLogicalAtomic: payLogical,
@@ -96,46 +94,40 @@ func validateSourceMode() error {
 		"scenario: SOURCE_MODE %q invalid (hardcoded only in this cut)", mode)
 }
 
-func loadPaymentClaim(scale int64) (protocol, chain, payTo string, payLogical, payReal decimal.Decimal, err error) {
+func loadPaymentClaim(scale int64) (protocol, chain string, payLogical, payReal decimal.Decimal, err error) {
 	protocol = strings.TrimSpace(os.Getenv(EnvPaymentProtocol))
 	if protocol == "" {
 		protocol = "x402"
 	}
 	chain = strings.TrimSpace(os.Getenv(EnvPaymentChain))
 	if chain == "" {
-		return "", "", "", decimal.Zero, decimal.Zero, liqerr.New(liqerr.CodeInvalidQuery,
+		return "", "", decimal.Zero, decimal.Zero, liqerr.New(liqerr.CodeInvalidQuery,
 			"scenario: PAYMENT_CHAIN required (CAIP-2 dest)")
 	}
 	info, ok := liquidity.LookupChain(chain)
 	if !ok {
-		return "", "", "", decimal.Zero, decimal.Zero, liqerr.New(liqerr.CodeInvalidQuery,
+		return "", "", decimal.Zero, decimal.Zero, liqerr.New(liqerr.CodeInvalidQuery,
 			"scenario: PAYMENT_CHAIN %q not in registry", chain)
 	}
 	chain = info.CAIP2
 
-	payTo = strings.TrimSpace(os.Getenv(EnvPaymentPayTo))
-	if payTo == "" {
-		return "", "", "", decimal.Zero, decimal.Zero, liqerr.New(liqerr.CodeInsufficientLiquidity,
-			"scenario: empty PAYMENT_PAY_TO — refuse plan; never invent merchant recipient")
-	}
-
 	payHuman := strings.TrimSpace(os.Getenv(EnvPaymentAmountUSDC))
 	if payHuman == "" {
-		return "", "", "", decimal.Zero, decimal.Zero, liqerr.New(liqerr.CodeInvalidQuery,
+		return "", "", decimal.Zero, decimal.Zero, liqerr.New(liqerr.CodeInvalidQuery,
 			"scenario: PAYMENT_AMOUNT_USDC required")
 	}
 	payLogical, err = HumanUSDCToLogicalAtomic(payHuman)
 	if err != nil {
-		return "", "", "", decimal.Zero, decimal.Zero, err
+		return "", "", decimal.Zero, decimal.Zero, err
 	}
 	payReal, err = ScaleLogicalToReal(payLogical, scale)
 	if err != nil {
-		return "", "", "", decimal.Zero, decimal.Zero, err
+		return "", "", decimal.Zero, decimal.Zero, err
 	}
-	return protocol, chain, payTo, payLogical, payReal, nil
+	return protocol, chain, payLogical, payReal, nil
 }
 
-func requireAgent(payTo string) (string, error) {
+func requireAgent() (string, error) {
 	agent, err := resolveAgentAddress()
 	if err != nil {
 		return "", err
@@ -143,10 +135,6 @@ func requireAgent(payTo string) (string, error) {
 	if agent == "" {
 		return "", liqerr.New(liqerr.CodeInvalidQuery,
 			"scenario: agent required (set AGENT_ADDRESS or AGENT_PRIVATE_KEY)")
-	}
-	if addrEqualEVM(agent, payTo) {
-		return "", liqerr.New(liqerr.CodeInvalidQuery,
-			"scenario: agent_address must not equal PAYMENT_PAY_TO (anti–confused-deputy)")
 	}
 	return agent, nil
 }
@@ -204,7 +192,7 @@ func loadScaledSources(scale int64, payLogical, payReal decimal.Decimal) ([]Sour
 	return sources, nil
 }
 
-// BuildRequired maps the scenario payment claim to liquidity.Required (real amount_atomic).
+// BuildRequired maps the scenario land amount to liquidity.Required (real amount_atomic; no pay_to).
 func (s Scenario) BuildRequired() liquidity.Required {
 	asset, ok := liquidity.DefaultUSDC(s.PaymentChainCAIP2)
 	if !ok {
@@ -214,7 +202,6 @@ func (s Scenario) BuildRequired() liquidity.Required {
 		Protocol:            s.Protocol,
 		ChainCAIP2:          s.PaymentChainCAIP2,
 		Asset:               asset,
-		PayTo:               s.PayTo,
 		AmountAtomic:        s.PaymentRealAtomic,
 		AmountSource:        liquidity.AmountSourceProbe,
 		AmountLogicalAtomic: s.PaymentLogicalAtomic,

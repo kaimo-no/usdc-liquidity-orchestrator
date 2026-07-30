@@ -46,8 +46,8 @@ type Config struct {
 	SaltFn func() (string, error)
 }
 
-// DepositExecutor executes testnet Gateway plans: consolidate deposits,
-// deposit_withdraw (deposits + burn/mint), and withdraw (burn/mint only).
+// DepositExecutor executes testnet Gateway plans: consolidate/deposit (deposits only)
+// and withdraw (burn/mint only). Never composite deposit+withdraw.
 type DepositExecutor struct {
 	key                *ecdsa.PrivateKey
 	addr               common.Address
@@ -165,11 +165,11 @@ func (e *DepositExecutor) Address() common.Address {
 
 // Execute runs a testnet Gateway plan. Supported actions:
 //   - circle_gateway_consolidate — deposit steps only (re-derived prepare_calls)
-//   - circle_gateway_deposit_withdraw — deposits then burn intents + gatewayMint
-//   - circle_gateway_withdraw — burn intents + gatewayMint only
+//   - circle_gateway_deposit — deposit steps only (re-derived prepare_calls)
+//   - circle_gateway_withdraw — burn intents + gatewayMint only (agent_self mint)
 //
-// Partial failures return hashes broadcast so far plus a coded error
-// (caller stamps executed=false). Never logs keys, balances, or calldata.
+// Composite deposit+withdraw is refused. Partial failures return hashes broadcast
+// so far plus a coded error (caller stamps executed=false). Never logs keys, balances, or calldata.
 func (e *DepositExecutor) Execute(ctx context.Context, p liquidity.Plan) (liquidity.Receipt, error) {
 	if e == nil {
 		return liquidity.Receipt{}, liqerr.New(liqerr.CodeLiquidityRailUnavailable,
@@ -243,7 +243,6 @@ func (e *DepositExecutor) validateAgentAndAction(p liquidity.Plan) (agent string
 	switch p.Action {
 	case liquidity.ActionCircleGatewayConsolidate,
 		liquidity.ActionCircleGatewayDeposit,
-		liquidity.ActionCircleGatewayDepositWithdraw,
 		liquidity.ActionCircleGatewayWithdraw:
 	default:
 		return "", liqerr.New(liqerr.CodeLiquidityRailUnavailable,
@@ -291,32 +290,35 @@ func validateActionSteps(action liquidity.PlanAction, deposits, withdraws []liqu
 			return liqerr.New(liqerr.CodeInvalidQuery,
 				"deposit execute: deposit action requires deposit steps only")
 		}
-	case liquidity.ActionCircleGatewayDepositWithdraw:
-		if len(deposits) == 0 || len(withdraws) == 0 {
-			return liqerr.New(liqerr.CodeInvalidQuery,
-				"deposit execute: deposit_withdraw requires deposit and withdraw steps")
-		}
 	case liquidity.ActionCircleGatewayWithdraw:
 		if len(deposits) > 0 || len(withdraws) == 0 {
 			return liqerr.New(liqerr.CodeInvalidQuery,
 				"deposit execute: withdraw action requires withdraw steps only")
 		}
+	default:
+		return liqerr.New(liqerr.CodeLiquidityRailUnavailable,
+			"deposit execute: action not supported for live execute")
 	}
 	return nil
 }
 
-// burnParamsFromPlan maps deposits (or withdraw-only) to burn/mint params.
-// destinationRecipient is always the agent.
+// burnParamsFromPlan maps withdraw-only steps to burn/mint params.
+// destinationRecipient is always the agent. Composite deposit+withdraw is not supported.
 func burnParamsFromPlan(
 	action liquidity.PlanAction,
 	deposits, withdraws []liquidity.PlanStep,
 	agent string,
 ) ([]burnMintParams, error) {
+	_ = action
+	if len(deposits) > 0 {
+		return nil, liqerr.New(liqerr.CodeInvalidQuery,
+			"deposit execute: withdraw burn/mint refuses deposit steps (Phase A then Phase B)")
+	}
 	if len(withdraws) == 0 {
 		return nil, liqerr.New(liqerr.CodeInvalidQuery,
 			"deposit execute: missing withdraw step for burn/mint")
 	}
-	// Single dest withdraw is the common case (PlanPaymentFunding).
+	// Single dest withdraw is the common case.
 	dest := withdraws[0].ToChainCAIP2
 	for _, w := range withdraws {
 		if !strings.EqualFold(strings.TrimSpace(w.ToChainCAIP2), strings.TrimSpace(dest)) {
@@ -329,22 +331,9 @@ func burnParamsFromPlan(
 		}
 	}
 
-	if action == liquidity.ActionCircleGatewayDepositWithdraw || len(deposits) > 0 {
-		out := make([]burnMintParams, 0, len(deposits))
-		for _, d := range deposits {
-			out = append(out, burnMintParams{
-				SourceChainCAIP2: d.FromChainCAIP2,
-				DestChainCAIP2:   dest,
-				ValueAtomic:      d.AmountAtomic,
-				Recipient:        agent,
-			})
-		}
-		return out, nil
-	}
-
-	// Withdraw-only: one logical withdraw step. Empty FromChainCAIP2 is resolved later
-	// via Gateway /v1/balances (do not assume same-domain as dest — shortfall plans often
-	// mint to dest while balance lives on other Gateway domains).
+	// Withdraw-only: Empty FromChainCAIP2 is resolved later via Gateway /v1/balances
+	// (do not assume same-domain as dest — shortfall plans often mint to dest while
+	// balance lives on other Gateway domains).
 	out := make([]burnMintParams, 0, len(withdraws))
 	for _, w := range withdraws {
 		out = append(out, burnMintParams{

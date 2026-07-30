@@ -23,7 +23,6 @@ func paymentFundingHappy(t *testing.T) (liquidity.Required, liquidity.Inventory,
 		Protocol:            "x402",
 		ChainCAIP2:          baseSepCAIP2,
 		Asset:               baseSepUSDC,
-		PayTo:               merchantPayTo,
 		AmountAtomic:        decimal.RequireFromString("40000000"),
 		AmountSource:        liquidity.AmountSourceProbe,
 		AmountLogicalAtomic: decimal.RequireFromString("400000000"),
@@ -51,38 +50,33 @@ func paymentFundingHappy(t *testing.T) (liquidity.Required, liquidity.Inventory,
 	return req, inv, sources
 }
 
-func TestPlanPaymentFunding_T1_MultiSourceFullFunding(t *testing.T) {
+func TestPlanPaymentFunding_T1_MultiSourceDepositsOnly(t *testing.T) {
 	req, inv, sources := paymentFundingHappy(t)
 	p, err := liquidity.PlanPaymentFunding(req, inv, sources, nil)
 	require.NoError(t, err)
-	assert.Equal(t, liquidity.ActionCircleGatewayDepositWithdraw, p.Action)
-	assert.Contains(t, p.Reason, "scenario full-funding")
-	// two deposits + one withdraw
-	require.Len(t, p.Steps, 3)
-	// deposits CAIP-sorted: arb (421614) before base (84532)? 421614 < 84532 as strings...
-	// "eip155:421614" vs "eip155:84532" — 4 < 8 so arb first
+	assert.Equal(t, liquidity.ActionCircleGatewayDeposit, p.Action)
+	assert.Contains(t, p.Reason, "Phase A")
+	// two deposits only (no withdraw)
+	require.Len(t, p.Steps, 2)
 	assert.Equal(t, liquidity.StepKindCircleGatewayDeposit, p.Steps[0].Kind)
 	assert.Equal(t, liquidity.StepKindCircleGatewayDeposit, p.Steps[1].Kind)
-	assert.Equal(t, liquidity.StepKindCircleGatewayWithdraw, p.Steps[2].Kind)
-	assert.True(t, p.Steps[2].AmountAtomic.Equal(req.AmountAtomic))
-	assert.Equal(t, agentAddr, p.Steps[2].Recipient)
-	assert.Equal(t, liquidity.RecipientRoleAgentSelf, p.Steps[2].RecipientRole)
-	assert.Equal(t, baseSepCAIP2, p.Steps[2].ToChainCAIP2)
 
 	sumDep := decimal.Zero
-	for _, s := range p.Steps[:2] {
+	for _, s := range p.Steps {
 		sumDep = sumDep.Add(s.AmountAtomic)
 		assert.Equal(t, agentAddr, s.Recipient)
+		assert.Equal(t, liquidity.RecipientRoleAgentSelf, s.RecipientRole)
+		assert.NotEqual(t, liquidity.StepKindCircleGatewayWithdraw, s.Kind)
 	}
 	assert.True(t, sumDep.Equal(req.AmountAtomic))
 }
 
-func TestPlanPaymentFunding_T5_EmptyPayTo(t *testing.T) {
+func TestPlanPaymentFunding_T5_EmptyPayTo_OK(t *testing.T) {
 	req, inv, sources := paymentFundingHappy(t)
 	req.PayTo = ""
-	_, err := liquidity.PlanPaymentFunding(req, inv, sources, nil)
-	require.Error(t, err)
-	assert.Equal(t, liqerr.CodeInsufficientLiquidity, liqerr.CodeOf(err))
+	p, err := liquidity.PlanPaymentFunding(req, inv, sources, nil)
+	require.NoError(t, err)
+	assert.Equal(t, liquidity.ActionCircleGatewayDeposit, p.Action)
 }
 
 func TestPlanPaymentFunding_T6_EmptyAgent(t *testing.T) {
@@ -95,6 +89,7 @@ func TestPlanPaymentFunding_T6_EmptyAgent(t *testing.T) {
 
 func TestPlanPaymentFunding_T7_AgentEqualsPayTo(t *testing.T) {
 	req, inv, sources := paymentFundingHappy(t)
+	req.PayTo = merchantPayTo
 	inv.AgentAddress = merchantPayTo
 	_, err := liquidity.PlanPaymentFunding(req, inv, sources, nil)
 	require.Error(t, err)
@@ -124,9 +119,9 @@ func TestPlanPaymentFunding_T8_DestChainSourceOK(t *testing.T) {
 	}
 	p, err := liquidity.PlanPaymentFunding(req, inv, sources, nil)
 	require.NoError(t, err)
-	require.Len(t, p.Steps, 2)
+	require.Len(t, p.Steps, 1)
+	assert.Equal(t, liquidity.StepKindCircleGatewayDeposit, p.Steps[0].Kind)
 	assert.Equal(t, baseSepCAIP2, p.Steps[0].FromChainCAIP2)
-	assert.Equal(t, baseSepCAIP2, p.Steps[1].ToChainCAIP2)
 }
 
 func TestPlanPaymentFunding_T9_AgentSelfPrepareCalls(t *testing.T) {
@@ -171,15 +166,12 @@ func TestPlanPaymentFunding_T13_PlanToWire_DualAmounts(t *testing.T) {
 	var sawDeposit bool
 	for _, s := range w.Steps {
 		assert.NotEmpty(t, s.AmountAtomic)
+		assert.NotEqual(t, liquidity.StepKindCircleGatewayWithdraw, s.Kind)
 		if s.Kind == liquidity.StepKindCircleGatewayDeposit {
 			sawDeposit = true
 			assert.NotEmpty(t, s.AmountLogicalAtomic)
 			assert.Equal(t, int64(10), s.ScaleFactor)
 			require.NotEmpty(t, s.PrepareCalls)
-		}
-		if s.Kind == liquidity.StepKindCircleGatewayWithdraw {
-			assert.Equal(t, "40000000", s.AmountAtomic)
-			assert.Equal(t, "400000000", s.AmountLogicalAtomic)
 		}
 	}
 	assert.True(t, sawDeposit)
@@ -194,19 +186,19 @@ func TestPlanPaymentFunding_SumMismatch_InvalidQuery(t *testing.T) {
 }
 
 func TestPlanPaymentFunding_T14_ShortfallPathStillWorks(t *testing.T) {
-	// Smoke: PlanOrchestration shortfall-only path unchanged alongside payment funding.
+	// Smoke: PlanOrchestration Phase B shortfall alongside payment funding Phase A.
 	req := baseRequired()
 	req.AmountAtomic = decimal.RequireFromString("42000000")
 	inv := liquidity.Inventory{
 		AgentAddress: agentAddr,
 		Balances: []liquidity.Balance{
-			{ChainCAIP2: arbCAIP2, Asset: baseUSDC, AmountAtomic: decimal.RequireFromString("30000000"), Location: liquidity.LocationNative},
+			{ChainCAIP2: arbCAIP2, Asset: arbUSDC, AmountAtomic: decimal.RequireFromString("30000000"), Location: liquidity.LocationNative},
 			{ChainCAIP2: baseCAIP2, Asset: baseUSDC, AmountAtomic: decimal.RequireFromString("20000000"), Location: liquidity.LocationNative},
 		},
 	}
 	p, err := liquidity.PlanLiquidity(req, inv, nil)
 	require.NoError(t, err)
-	assert.Equal(t, liquidity.ActionCircleGatewayDepositWithdraw, p.Action)
+	assert.Equal(t, liquidity.ActionCCTPFast, p.Action)
 	require.Len(t, p.Steps, 2)
 	assert.True(t, p.Steps[0].AmountAtomic.Equal(decimal.RequireFromString("22000000")),
 		"shortfall-only must still move 22 USDC not full 42")

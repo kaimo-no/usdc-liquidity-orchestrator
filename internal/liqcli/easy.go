@@ -36,7 +36,6 @@ var bodyEasyFlagNames = map[string]struct{}{
 	"sources":         {},
 	"amount":          {},
 	"amount-atomic":   {},
-	"pay-to":          {},
 	"balance":         {},
 	"gateway-balance": {},
 	"live":            {},
@@ -66,10 +65,9 @@ type EasyCommon struct {
 	Execute        bool
 }
 
-// EasyPlanInput is easy-mode plan flags.
+// EasyPlanInput is easy-mode Phase B plan flags (land N on dest agent_self; no pay_to).
 type EasyPlanInput struct {
 	EasyCommon
-	PayTo        string
 	Amount       string
 	AmountAtomic string
 }
@@ -329,16 +327,13 @@ func ValidateEasyGates(common EasyCommon, _ bool) error {
 	return nil
 }
 
-// ValidateEasyPlanRequired checks dest, pay-to, amount XOR, and agent.
+// ValidateEasyPlanRequired checks dest, amount XOR, and agent (Phase B; no pay_to).
 func ValidateEasyPlanRequired(in EasyPlanInput, agent string) error {
 	if strings.TrimSpace(agent) == "" {
 		return fmt.Errorf("easy plan: --agent or --private-key required")
 	}
 	if strings.TrimSpace(in.Dest) == "" {
 		return fmt.Errorf("easy plan: --dest required")
-	}
-	if strings.TrimSpace(in.PayTo) == "" {
-		return fmt.Errorf("easy plan: --pay-to required")
 	}
 	h := strings.TrimSpace(in.Amount)
 	a := strings.TrimSpace(in.AmountAtomic)
@@ -444,12 +439,9 @@ func BuildAssertedInventory(agent string, balanceKVs []string, gatewayHuman stri
 	return out, nil
 }
 
-// BuildPlanRequestFromEasy maps easy flags + inventory to a shortfall PlanRequest.
-// Execute comes only from in.Execute (never from Live).
+// BuildPlanRequestFromEasy maps easy flags + inventory to a Phase B land PlanRequest.
+// Execute comes only from in.Execute (never from Live). No pay_to — mint always agent_self.
 func BuildPlanRequestFromEasy(in EasyPlanInput, inv types.Inventory) (types.PlanRequest, error) {
-	if strings.TrimSpace(in.PayTo) == "" {
-		return types.PlanRequest{}, liqerr.New(liqerr.CodeInvalidQuery, "plan: pay_to required")
-	}
 	dest, err := liquidity.ResolveChainRef(in.Dest, in.Testnet)
 	if err != nil {
 		return types.PlanRequest{}, err
@@ -473,12 +465,10 @@ func BuildPlanRequestFromEasy(in EasyPlanInput, inv types.Inventory) (types.Plan
 	}
 	return types.PlanRequest{
 		Required: types.Required{
-			Protocol:     "x402",
 			ChainCAIP2:   dest.CAIP2,
 			Asset:        dest.USDC,
 			AmountAtomic: amt.String(),
-			PayTo:        strings.TrimSpace(in.PayTo),
-			PayToRole:    liquidity.RecipientRoleMerchant,
+			Source:       liquidity.AmountSourceSelf,
 		},
 		Inventory:     inv,
 		Orchestration: orch,

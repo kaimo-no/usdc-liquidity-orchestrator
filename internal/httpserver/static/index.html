@@ -329,12 +329,12 @@
   <main>
     <div class="banner">
       <strong>Non-custodial.</strong>
-      Fund rails always land on <code>agent_self</code> — merchant <code>pay_to</code> is claim metadata only (never a mint/bridge dest).
+      Fund rails always land on <code>agent_self</code>. Phase A deposits into Gateway; Phase B withdraw/CCTP lands N on dest. After deposit execute wait ~13–19m finality before withdraw.
       Live inventory is request-scoped and still stamps <code>inventory_unverified</code> on plans — never paste private keys.
       Amounts in this UI are <strong>human USDC</strong> (e.g. <code>40</code>); the browser multiplies by 10^6 for the API.
       <br /><br />
       <strong>Scenario</strong> = full hard-coded multi-source funding via <code>POST /v1/payment-funding</code>.
-      <strong>Plan</strong> = shortfall rebalance via <code>POST /v1/plan</code>.
+      <strong>Plan</strong> = Phase B shortfall land via <code>POST /v1/plan</code> (no pay_to required).
       <strong>Load live inventory</strong> = <code>POST /v1/inventory</code> (native RPCs + optional Circle Gateway).
     </div>
 
@@ -432,9 +432,7 @@
             <label>Payment amount (human USDC)
               <input id="scPayHuman" spellcheck="false" value="400" />
             </label>
-            <label class="full">pay_to (merchant — must ≠ agent; never auto-filled)
-              <input id="scPayTo" spellcheck="false" value="0x0000000000000000000000000000000000000001" />
-            </label>
+</label>
           </div>
           <h2 style="margin-top:8px">Hard-coded sources (human USDC)</h2>
           <div class="row">
@@ -469,9 +467,7 @@
             <label>Protocol
               <input id="reqProtocol" spellcheck="false" value="x402" />
             </label>
-            <label class="full">pay_to (merchant — must ≠ agent_address; never auto-filled)
-              <input id="reqPayTo" spellcheck="false" value="0xMerchantOnArc000000000000000000000001" />
-            </label>
+</label>
           </div>
         </div>
 
@@ -589,8 +585,7 @@
         protocol: "x402",
         pay_chain: "eip155:84532",
         pay_human: "400",
-        pay_to: "0x0000000000000000000000000000000000000001",
-        src_base: "300",
+                src_base: "300",
         src_arb: "100",
         src_arc: "0",
       },
@@ -605,8 +600,7 @@
           chain_caip2: "eip155:5042002",
           asset: CHAINS["eip155:5042002"].usdc,
           amount_usdc: "42",
-          pay_to: "0xMerchantOnArc000000000000000000000001",
-        },
+                  },
         prefer_rail: "circle_gateway",
         fee_bps: 25,
         fee_recipient: "0xKaimoFee000000000000000000000000000001",
@@ -622,8 +616,7 @@
           chain_caip2: "eip155:84532",
           asset: CHAINS["eip155:84532"].usdc,
           amount_usdc: "40",
-          pay_to: "0xMerchantOnBase0000000000000000000001",
-        },
+                  },
         prefer_rail: "circle_gateway",
         fee_bps: 0,
         fee_recipient: "",
@@ -929,7 +922,7 @@
       $("scProtocol").value = ex.protocol;
       $("scPayChain").value = ex.pay_chain;
       $("scPayHuman").value = ex.pay_human;
-      $("scPayTo").value = ex.pay_to;
+      // pay_to removed
       $("srcBase").value = ex.src_base;
       $("srcArb").value = ex.src_arb;
       $("srcArc").value = ex.src_arc;
@@ -946,7 +939,7 @@
         $("reqAsset").value = ex.required.asset;
         $("reqAmount").value = ex.required.amount_usdc || "0";
         $("reqProtocol").value = ex.required.protocol || "x402";
-        $("reqPayTo").value = ex.required.pay_to;
+        // pay_to removed
         $("preferRail").value = ex.prefer_rail || "auto";
         $("feeBps").value = ex.fee_bps || 0;
         $("feeRecipient").value = ex.fee_recipient || "";
@@ -984,9 +977,7 @@
           amount_atomic: payR.toString(),
           amount_logical_atomic: payL.toString(),
           scale_factor: scale,
-          pay_to: $("scPayTo").value.trim(),
-          pay_to_role: "merchant",
-          source: "probe",
+                    source: "probe",
         },
         inventory: {
           agent_address: $("agentAddress").value.trim(),
@@ -1006,9 +997,7 @@
           chain_caip2: $("reqChain").value.trim(),
           asset: $("reqAsset").value.trim(),
           amount_atomic: amountAtomic.toString(),
-          pay_to: $("reqPayTo").value.trim(),
-          pay_to_role: "merchant",
-          source: "probe",
+                    source: "probe",
         },
         inventory: {
           agent_address: $("agentAddress").value.trim(),

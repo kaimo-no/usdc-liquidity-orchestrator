@@ -71,18 +71,23 @@ func printUsage(w io.Writer) {
 Usage:
   usdc-liq <command> [flags]
 
-Commands (HTTP parity):
-  plan              payment shortfall rebalance (merchant pay_to claim; fund agent_self)
-  consolidate       full native balances → circle_gateway (not fixed amount; use deposit)
-  payment-funding   scenario full-funding plan (POST /v1/payment-funding body)
-  chains            registered corridors (GET /v1/chains)
+Phase A — fund circle_gateway (deposits only; no withdraw in same plan):
+  deposit           fixed-N native → circle_gateway (single source)
+  consolidate       full native balances → circle_gateway
+  payment-funding   scenario multi-source fixed deposits (HTTP parity)
 
-CLI-only:
-  deposit           fixed-N native → circle_gateway (single source; no pay_to)
-  move              land N on dest agent_self (shortfall-only; no pay_to)
+Phase B — land N on dest agent_self (withdraw or CCTP; never auto-deposit):
+  plan              shortfall land (HTTP parity POST /v1/plan)
+  move              same Phase B land (CLI-only; no fee)
+
+Other:
+  chains            registered corridors (GET /v1/chains)
   inventory         load live native + optional Gateway balances (needs agent + RPCs)
-  demo              worked scenario + shortfall + consolidate examples
+  demo              Phase A deposits + Phase B land + consolidate examples
   version           print version
+
+Finality: after Phase A deposit execute, wait ~13–19m for Gateway finality before
+Phase B withdraw can see the balance (Circle docs). Plan withdraw separately.
 
 JSON mode (plan | consolidate | deposit | move | payment-funding):
   -f file           request JSON file (default "-" = stdin)
@@ -94,7 +99,6 @@ Easy mode (plan | consolidate | deposit | move) — XOR with -f; incomplete → 
   --sources REFS    comma-separated source chain refs (plan/move/allowlist)
   --amount USDC     human USDC (×10^6 atomic); XOR --amount-atomic
   --amount-atomic N atomic USDC string
-  --pay-to 0x…      merchant claim (plan only; never fund dest)
   --balance REF=USDC  asserted native (repeatable; not with --live)
   --gateway-balance USDC  asserted circle_gateway unified balance
   --live            load inventory via RPCs (not with balances; testnet only)
@@ -104,7 +108,7 @@ Easy mode (plan | consolidate | deposit | move) — XOR with -f; incomplete → 
   --mainnet         resolve domain ids as mainnet (default testnet)
   --execute         dual-gated live execute (ENABLE_TESTNET_EXECUTE=1)
 
-Exit codes: 0 success, 1 plan/execute failure, 2 usage.
+Mint always lands on agent_self (never merchant pay_to). Exit: 0 success, 1 fail, 2 usage.
 JSON always on stdout; notes on stderr (no secrets/balances/RPC).
 `)
 }
@@ -455,10 +459,10 @@ func sliceOf(s *stringList) []string {
 
 // easyFlagHolders holds pointers registered on a FlagSet for plan/consolidate/deposit/move.
 type easyFlagHolders struct {
-	dest, source, sources, amount, amountAtomic, payTo stringPtr
-	gatewayBalance, agent, privateKey                  stringPtr
-	mainnet, live                                      *bool
-	balances, rpcs                                     *stringList
+	dest, source, sources, amount, amountAtomic stringPtr
+	gatewayBalance, agent, privateKey           stringPtr
+	mainnet, live                               *bool
+	balances, rpcs                              *stringList
 }
 
 type stringPtr = *string
@@ -471,7 +475,6 @@ func addEasyFlags(fs *flag.FlagSet) easyFlagHolders {
 		sources:        fs.String("sources", "", "comma-separated source chain refs"),
 		amount:         fs.String("amount", "", "human USDC amount"),
 		amountAtomic:   fs.String("amount-atomic", "", "atomic USDC amount (XOR --amount)"),
-		payTo:          fs.String("pay-to", "", "merchant pay_to claim (plan only)"),
 		gatewayBalance: fs.String("gateway-balance", "", "asserted circle_gateway human USDC"),
 		agent:          fs.String("agent", "", "agent wallet address"),
 		privateKey:     fs.String("private-key", "", "hex ECDSA key (prefer AGENT_PRIVATE_KEY env)"),
@@ -488,7 +491,6 @@ func addEasyFlags(fs *flag.FlagSet) easyFlagHolders {
 func easyPlanFromFlags(h easyFlagHolders, execute bool) EasyPlanInput {
 	return EasyPlanInput{
 		EasyCommon:   easyCommonFromFlags(h, execute),
-		PayTo:        *h.payTo,
 		Amount:       *h.amount,
 		AmountAtomic: *h.amountAtomic,
 	}

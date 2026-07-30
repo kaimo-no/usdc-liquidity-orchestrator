@@ -4,8 +4,6 @@
     "chain_caip2": "eip155:5042002",
     "asset": "0x3600000000000000000000000000000000000000",
     "amount_atomic": "42000000",
-    "pay_to": "0xMerchantOnArc000000000000000000000001",
-    "pay_to_role": "merchant",
     "source": "probe"
   },
   "inventory": {
