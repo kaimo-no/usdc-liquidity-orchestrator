@@ -63,17 +63,22 @@ func (g *Guard) CheckAgent(inv Inventory) error {
 // Nil receiver is safe (used by bare UnconfiguredExecutor{}).
 //
 // Dual predicates:
-//   - requiresMerchantClaim: withdraw / cctp burn+mint need non-empty pay_to
+//   - requiresMerchantClaim: withdraw / cctp burn+mint need non-empty pay_to (unless selfRebalance)
 //   - fund-moving (incl. deposit): agent_self, recipient==agent, MaxAmountAtomic, kind allowlist
 //
-// Deposit-only plans may have empty pay_to; deposit+withdraw with empty pay_to is refused.
+// Deposit-only plans may have empty pay_to; deposit+withdraw with empty pay_to is refused
+// unless Plan.selfRebalance (set only by PlanSelfRebalance).
 func (g *Guard) CheckPlan(p Plan) error {
+	if p.selfRebalance && strings.TrimSpace(p.Required.PayTo) != "" {
+		return liqerr.New(liqerr.CodeInvalidQuery,
+			"liquidity: self-rebalance refuses non-empty pay_to (agent_self land only)")
+	}
 	hasFund, err := planHasFundSteps(p.Steps)
 	if err != nil {
 		return err
 	}
 	agent := strings.TrimSpace(p.agentAddress)
-	if err := checkFundPlanIdentity(hasFund, requiresMerchantClaim(p.Steps), p.Required, agent); err != nil {
+	if err := checkFundPlanIdentity(hasFund, requiresMerchantClaim(p), p.Required, agent); err != nil {
 		return err
 	}
 	for _, s := range p.Steps {
@@ -87,8 +92,11 @@ func (g *Guard) CheckPlan(p Plan) error {
 	return checkMaxAmounts(g, p)
 }
 
-func requiresMerchantClaim(steps []PlanStep) bool {
-	for _, s := range steps {
+func requiresMerchantClaim(p Plan) bool {
+	if p.selfRebalance {
+		return false
+	}
+	for _, s := range p.Steps {
 		k := strings.ToLower(strings.TrimSpace(s.Kind))
 		switch k {
 		case StepKindCircleGatewayWithdraw, StepKindCCTPBurn, StepKindCCTPMint:

@@ -13,6 +13,8 @@ Testnet-ready: multi-chain **consolidate** deposits + unsigned **prepare_calls**
 | `PlanOrchestration` | Shortfall-only rebalance + `Orchestration` + optional `FeeConfig` |
 | `PlanPaymentFunding` | Scenario full-funding (not shortfall): hard-coded source deposits + full withdraw |
 | `PlanConsolidate` | Full-balance Gateway deposits (no pay_to/fee); action `circle_gateway_consolidate` |
+| `PlanGatewayDeposit` | Fixed-N single-source Gateway deposit (no pay_to/fee); hard underfund error |
+| `PlanSelfRebalance` | Land N on dest agent_self shortfall-only (empty pay_to; `selfRebalance`) |
 | `ListChains` / `LookupChain` / `LookupByGatewayDomain` / `ResolveChainRef` / `GatewayWalletAddress` | Registry + domain/name/CAIP-2 resolve + Gateway Wallet |
 | `PlanToWire` | Agent-facing `types.Plan` stamps (+ fee + prepare_calls; optional logical/scale) |
 | `InventoryToWire` / `InventoryFromWire` / `OrchestrationFromWire` / `FeeConfigFromWire` | Wire helpers |
@@ -37,9 +39,10 @@ Testnet-ready: multi-chain **consolidate** deposits + unsigned **prepare_calls**
 - Inventory amounts must be positive (zero/negative → `invalid_query`)
 - Dest-native shortfall uses same-chain USDC match (symbol `"USDC"` ↔ registry contract)
 - `CheckPlan` dual predicates:
-  - **requiresMerchantClaim**: any withdraw / cctp_burn / cctp_mint → empty pay_to refuse
+  - **requiresMerchantClaim**: any withdraw / cctp_burn / cctp_mint → empty pay_to refuse **unless** `Plan.selfRebalance` (PlanSelfRebalance only)
   - **fund-moving** (incl. deposit): agent_self, recipient==agent, MaxAmountAtomic, kind allowlist
-  - deposit-only (consolidate) may have empty pay_to
+  - deposit-only (consolidate / fixed deposit) may have empty pay_to
+  - self-rebalance + non-empty pay_to → invalid_query
 - Deposit steps attach advisory `prepare_calls` (approve+deposit); pure-Go ABI; not re-checked by Guard
 - Atomic `decimal.Decimal` without `Round(2)`
 

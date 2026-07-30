@@ -50,8 +50,8 @@ func (e UnconfiguredExecutor) Execute(ctx context.Context, p Plan) (Receipt, err
 	case ActionNoop:
 		return Receipt{}, liqerr.New(liqerr.CodeLiquidityRailUnavailable,
 			"liquidity execute: not configured (noop dry plan is not an on-chain success)")
-	case ActionCircleGatewayConsolidate, ActionCircleGatewayWithdraw,
-		ActionCircleGatewayDepositWithdraw, ActionCCTPFast:
+	case ActionCircleGatewayConsolidate, ActionCircleGatewayDeposit,
+		ActionCircleGatewayWithdraw, ActionCircleGatewayDepositWithdraw, ActionCCTPFast:
 		return Receipt{}, liqerr.New(liqerr.CodeLiquidityRailUnavailable,
 			"liquidity execute: circle_gateway/cctp not configured — refuse %s", p.Action)
 	default:

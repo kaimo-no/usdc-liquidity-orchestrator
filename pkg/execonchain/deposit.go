@@ -211,7 +211,8 @@ func (e *DepositExecutor) Execute(ctx context.Context, p liquidity.Plan) (liquid
 		}
 	}
 
-	if p.Action == liquidity.ActionCircleGatewayConsolidate {
+	if p.Action == liquidity.ActionCircleGatewayConsolidate ||
+		p.Action == liquidity.ActionCircleGatewayDeposit {
 		return liquidity.Receipt{TxHashes: hashes}, nil
 	}
 
@@ -241,6 +242,7 @@ func (e *DepositExecutor) validateAgentAndAction(p liquidity.Plan) (agent string
 	}
 	switch p.Action {
 	case liquidity.ActionCircleGatewayConsolidate,
+		liquidity.ActionCircleGatewayDeposit,
 		liquidity.ActionCircleGatewayDepositWithdraw,
 		liquidity.ActionCircleGatewayWithdraw:
 	default:
@@ -284,10 +286,10 @@ func splitGatewaySteps(steps []liquidity.PlanStep, agent string) (deposits, with
 
 func validateActionSteps(action liquidity.PlanAction, deposits, withdraws []liquidity.PlanStep) error {
 	switch action {
-	case liquidity.ActionCircleGatewayConsolidate:
+	case liquidity.ActionCircleGatewayConsolidate, liquidity.ActionCircleGatewayDeposit:
 		if len(withdraws) > 0 || len(deposits) == 0 {
 			return liqerr.New(liqerr.CodeInvalidQuery,
-				"deposit execute: consolidate requires deposit steps only")
+				"deposit execute: deposit action requires deposit steps only")
 		}
 	case liquidity.ActionCircleGatewayDepositWithdraw:
 		if len(deposits) == 0 || len(withdraws) == 0 {

@@ -14,7 +14,7 @@ Module: `github.com/kaimo-no/usdc-liquidity-orchestrator`
 | **Skill** | this directory | Agent instructions |
 
 HTTP parity (shared `internal/planio` stamps): `plan` · `consolidate` · `payment-funding` · `chains`  
-CLI extras: `inventory` · `demo` · `version`
+CLI extras: `deposit` · `move` · `inventory` · `demo` · `version`
 
 ## Default: dry plan
 
@@ -23,9 +23,13 @@ Always prefer **dry** first (`execute=false` / no `--execute`):
 ```bash
 go run ./cmd/usdc-liq plan -f examples/plan.json
 go run ./cmd/usdc-liq consolidate -f examples/consolidate-testnet.json
+go run ./cmd/usdc-liq deposit -f examples/deposit.json   # fixed-N → circle_gateway
+go run ./cmd/usdc-liq move -f examples/move.json         # land N on dest agent_self
 go run ./cmd/usdc-liq chains
 # Easy mode (XOR -f): --dest --amount --pay-to --balance / --live …
 # go run ./cmd/usdc-liq plan --agent 0x… --pay-to 0x… --dest 26 --amount 42 --gateway-balance 100
+# go run ./cmd/usdc-liq deposit --agent 0x… --source 6 --amount 10 --balance 6=20
+# go run ./cmd/usdc-liq move --agent 0x… --dest 26 --amount 42 --gateway-balance 100
 ```
 
 ```bash

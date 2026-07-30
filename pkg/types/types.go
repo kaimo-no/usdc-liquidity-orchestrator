@@ -12,8 +12,8 @@ type Required struct {
 	AmountAtomic        string `json:"amount_atomic,omitempty"`
 	AmountLogicalAtomic string `json:"amount_logical_atomic,omitempty"`
 	ScaleFactor         int64  `json:"scale_factor,omitempty"`
-	PayTo               string `json:"pay_to"`
-	PayToRole           string `json:"pay_to_role"`
+	PayTo               string `json:"pay_to,omitempty"`
+	PayToRole           string `json:"pay_to_role,omitempty"`
 	Source              string `json:"source,omitempty"`
 }
 
@@ -112,6 +112,26 @@ type ConsolidateRequest struct {
 	Inventory     Inventory      `json:"inventory"`
 	Orchestration *Orchestration `json:"orchestration,omitempty"`
 	Execute       bool           `json:"execute,omitempty"`
+}
+
+// DepositRequest is CLI JSON input for fixed-N Gateway deposit (no merchant claim / fee).
+// Not exposed on HTTP this cut.
+type DepositRequest struct {
+	Inventory        Inventory      `json:"inventory"`
+	SourceChainCAIP2 string         `json:"source_chain_caip2"`
+	AmountAtomic     string         `json:"amount_atomic"`
+	Orchestration    *Orchestration `json:"orchestration,omitempty"`
+	Execute          bool           `json:"execute,omitempty"`
+}
+
+// MoveRequest is CLI JSON input for self-land rebalance (land N on dest agent_self).
+// Not exposed on HTTP this cut.
+type MoveRequest struct {
+	DestChainCAIP2 string         `json:"dest_chain_caip2"`
+	AmountAtomic   string         `json:"amount_atomic"`
+	Inventory      Inventory      `json:"inventory"`
+	Orchestration  *Orchestration `json:"orchestration,omitempty"`
+	Execute        bool           `json:"execute,omitempty"`
 }
 
 // FundingSource is one hard-coded deposit source for scenario full-funding plans.

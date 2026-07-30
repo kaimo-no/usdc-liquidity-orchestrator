@@ -26,6 +26,7 @@ const (
 	ActionCircleGatewayWithdraw        PlanAction = "circle_gateway_withdraw"
 	ActionCircleGatewayDepositWithdraw PlanAction = "circle_gateway_deposit_withdraw"
 	ActionCircleGatewayConsolidate     PlanAction = "circle_gateway_consolidate"
+	ActionCircleGatewayDeposit         PlanAction = "circle_gateway_deposit"
 	ActionCCTPFast                     PlanAction = "cctp_fast"
 	ActionInsufficient                 PlanAction = "insufficient"
 	ActionCorridorUnsupported          PlanAction = "corridor_unsupported"
@@ -39,6 +40,7 @@ const (
 	RecipientRoleOrchestrator = "orchestrator"
 	AmountSourceProbe         = "probe"
 	AmountSourceOverride      = "override"
+	AmountSourceSelf          = "self"
 
 	StepKindCircleGatewayWithdraw = "circle_gateway_withdraw"
 	StepKindCircleGatewayDeposit  = "circle_gateway_deposit"
@@ -136,6 +138,7 @@ type Plan struct {
 	DryRun              bool
 	Fee                 *PlanFee
 	agentAddress        string // agent_self binding; never bootstrap from steps in CheckPlan
+	selfRebalance       bool   // set only by PlanSelfRebalance; allows empty-pay_to withdraw/cctp
 }
 
 // BindAgent sets the agent_self identity for CheckPlan / execute.
@@ -274,7 +277,7 @@ func PlanOrchestration(req Required, inv Inventory, o *Orchestration, fee *FeeCo
 
 	// Only move the shortfall (required − dest native). Full required amount would
 	// reject valid fragmented inventory (e.g. 20 Base + 30 Arb for 42 on Base).
-	shortfall := req.AmountAtomic.Sub(sumMatching(req, inv, LocationNative, req.ChainCAIP2))
+	shortfall := req.AmountAtomic.Sub(sumMatchingNative(req, inv, req.ChainCAIP2))
 	if !shortfall.IsPositive() {
 		base.Action = ActionNoop
 		base.Reason = "dest native balance covers required amount"
@@ -531,7 +534,7 @@ func computeFeeAtomic(shortfall decimal.Decimal, bps int64) decimal.Decimal {
 }
 
 func hasNativeCover(req Required, inv Inventory) bool {
-	return sumMatching(req, inv, LocationNative, req.ChainCAIP2).GreaterThanOrEqual(req.AmountAtomic)
+	return sumMatchingNative(req, inv, req.ChainCAIP2).GreaterThanOrEqual(req.AmountAtomic)
 }
 
 // locationSumGateway sums circle_gateway USDC (unified balance; not chain-scoped).
@@ -629,10 +632,10 @@ func stepAssetForChain(rowAsset, chainCAIP2, fallback string) string {
 	return fallback
 }
 
-func sumMatching(req Required, inv Inventory, loc, chain string) decimal.Decimal {
+func sumMatchingNative(req Required, inv Inventory, chain string) decimal.Decimal {
 	sum := decimal.Zero
 	for _, b := range inv.Balances {
-		if normalizeLoc(b.Location) != loc {
+		if normalizeLoc(b.Location) != LocationNative {
 			continue
 		}
 		if !strings.EqualFold(strings.TrimSpace(b.ChainCAIP2), strings.TrimSpace(chain)) {
@@ -738,6 +741,18 @@ func PlanToWire(p Plan) types.Plan {
 		if p.Required.ScaleFactor > 0 {
 			reqWire.ScaleFactor = p.Required.ScaleFactor
 		}
+	} else if p.selfRebalance {
+		// Land stamp: dest + N without merchant pay_to (omitempty omits empty fields).
+		src := p.Required.AmountSource
+		if src == "" {
+			src = AmountSourceSelf
+		}
+		reqWire = &types.Required{
+			ChainCAIP2:   p.Required.ChainCAIP2,
+			Asset:        p.Required.Asset,
+			AmountAtomic: p.Required.AmountAtomic.String(),
+			Source:       src,
+		}
 	}
 	var feeWire *types.Fee
 	if p.Fee != nil {
@@ -751,13 +766,16 @@ func PlanToWire(p Plan) types.Plan {
 			Asset:         p.Fee.Asset,
 		}
 	}
-	// Omit amount_source when no merchant Required (consolidate / no pay_to).
+	// Merchant amount_source, self-rebalance "self", else omit (consolidate/deposit).
 	amountSrc := ""
-	if p.Required.PayTo != "" {
+	switch {
+	case p.Required.PayTo != "":
 		amountSrc = p.Required.AmountSource
 		if amountSrc == "" {
 			amountSrc = AmountSourceProbe
 		}
+	case p.selfRebalance:
+		amountSrc = AmountSourceSelf
 	}
 	return types.Plan{
 		Action:              string(p.Action),

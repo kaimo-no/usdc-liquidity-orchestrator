@@ -1,4 +1,4 @@
-// Easy-mode flag helpers for usdc-liq plan/consolidate (no network in pure builders).
+// Easy-mode flag helpers for usdc-liq plan/consolidate/deposit/move (no network in pure builders).
 // Never log private keys, agent addresses in error strings, balances, or RPC URLs.
 package liqcli
 
@@ -19,7 +19,7 @@ import (
 // HumanUSDCScale is USDC atomic units per human unit (6 decimals). Fixed; ignore USDC_SCALE_FACTOR.
 const HumanUSDCScale int64 = 1_000_000
 
-// ModeKind is plan/consolidate input mode.
+// ModeKind is plan/consolidate/deposit/move input mode.
 type ModeKind int
 
 const (
@@ -29,9 +29,10 @@ const (
 	ModeEasy
 )
 
-// bodyEasyFlagNames trigger easy mode when Visited (plan/consolidate).
+// bodyEasyFlagNames trigger easy mode when Visited (plan/consolidate/deposit/move).
 var bodyEasyFlagNames = map[string]struct{}{
 	"dest":            {},
+	"source":          {},
 	"sources":         {},
 	"amount":          {},
 	"amount-atomic":   {},
@@ -76,6 +77,21 @@ type EasyPlanInput struct {
 // EasyConsolidateInput is easy-mode consolidate flags (no pay_to / amount).
 type EasyConsolidateInput struct {
 	EasyCommon
+}
+
+// EasyDepositInput is easy-mode fixed-N deposit flags (no pay_to).
+type EasyDepositInput struct {
+	EasyCommon
+	Source       string
+	Amount       string
+	AmountAtomic string
+}
+
+// EasyMoveInput is easy-mode self-land flags (no pay_to).
+type EasyMoveInput struct {
+	EasyCommon
+	Amount       string
+	AmountAtomic string
 }
 
 // DetectPlanMode classifies JSON vs easy after flag.Parse.
@@ -346,6 +362,50 @@ func ValidateEasyConsolidateRequired(in EasyConsolidateInput, agent string) erro
 	return nil
 }
 
+// ValidateEasyDepositRequired checks agent, source, amount XOR, inventory for deposit easy.
+func ValidateEasyDepositRequired(in EasyDepositInput, agent string) error {
+	if strings.TrimSpace(agent) == "" {
+		return fmt.Errorf("deposit: --agent or --private-key required")
+	}
+	if strings.TrimSpace(in.Source) == "" {
+		return fmt.Errorf("deposit: source required")
+	}
+	h := strings.TrimSpace(in.Amount)
+	a := strings.TrimSpace(in.AmountAtomic)
+	if h == "" && a == "" {
+		return fmt.Errorf("deposit: --amount or --amount-atomic required")
+	}
+	if h != "" && a != "" {
+		return fmt.Errorf("deposit: --amount and --amount-atomic are mutually exclusive")
+	}
+	if !in.Live && len(in.Balances) == 0 {
+		return fmt.Errorf("deposit: require --balance or --live")
+	}
+	return nil
+}
+
+// ValidateEasyMoveRequired checks agent, dest, amount XOR, inventory for move easy.
+func ValidateEasyMoveRequired(in EasyMoveInput, agent string) error {
+	if strings.TrimSpace(agent) == "" {
+		return fmt.Errorf("move: --agent or --private-key required")
+	}
+	if strings.TrimSpace(in.Dest) == "" {
+		return fmt.Errorf("move: dest required")
+	}
+	h := strings.TrimSpace(in.Amount)
+	a := strings.TrimSpace(in.AmountAtomic)
+	if h == "" && a == "" {
+		return fmt.Errorf("move: --amount or --amount-atomic required")
+	}
+	if h != "" && a != "" {
+		return fmt.Errorf("move: --amount and --amount-atomic are mutually exclusive")
+	}
+	if !in.Live && len(in.Balances) == 0 && strings.TrimSpace(in.GatewayBalance) == "" {
+		return fmt.Errorf("move: require --balance / --gateway-balance or --live")
+	}
+	return nil
+}
+
 // BuildAssertedInventory builds wire inventory from --balance and optional --gateway-balance.
 func BuildAssertedInventory(agent string, balanceKVs []string, gatewayHuman string, testnet bool) (types.Inventory, error) {
 	agent = strings.TrimSpace(agent)
@@ -450,6 +510,62 @@ func BuildConsolidateRequestFromEasy(in EasyConsolidateInput, inv types.Inventor
 		Inventory:     inv,
 		Orchestration: orch,
 		Execute:       in.Execute,
+	}, nil
+}
+
+// BuildDepositRequestFromEasy maps easy flags + inventory to DepositRequest.
+func BuildDepositRequestFromEasy(in EasyDepositInput, inv types.Inventory) (types.DepositRequest, error) {
+	src, err := liquidity.ResolveChainRef(in.Source, in.Testnet)
+	if err != nil {
+		return types.DepositRequest{}, err
+	}
+	amt, err := ParseAmountExclusive(in.Amount, in.AmountAtomic)
+	if err != nil {
+		return types.DepositRequest{}, err
+	}
+	var orch *types.Orchestration
+	if strings.TrimSpace(in.Sources) != "" {
+		sources, err := resolveSourceCAIP2s(in.Sources, in.Testnet)
+		if err != nil {
+			return types.DepositRequest{}, err
+		}
+		if len(sources) > 0 {
+			orch = &types.Orchestration{SourceChainCAIP2s: sources}
+		}
+	}
+	return types.DepositRequest{
+		Inventory:        inv,
+		SourceChainCAIP2: src.CAIP2,
+		AmountAtomic:     amt.String(),
+		Orchestration:    orch,
+		Execute:          in.Execute,
+	}, nil
+}
+
+// BuildMoveRequestFromEasy maps easy flags + inventory to MoveRequest.
+func BuildMoveRequestFromEasy(in EasyMoveInput, inv types.Inventory) (types.MoveRequest, error) {
+	dest, err := liquidity.ResolveChainRef(in.Dest, in.Testnet)
+	if err != nil {
+		return types.MoveRequest{}, err
+	}
+	amt, err := ParseAmountExclusive(in.Amount, in.AmountAtomic)
+	if err != nil {
+		return types.MoveRequest{}, err
+	}
+	sources, err := resolveSourceCAIP2s(in.Sources, in.Testnet)
+	if err != nil {
+		return types.MoveRequest{}, err
+	}
+	orch := &types.Orchestration{TargetChainCAIP2: dest.CAIP2}
+	if len(sources) > 0 {
+		orch.SourceChainCAIP2s = sources
+	}
+	return types.MoveRequest{
+		DestChainCAIP2: dest.CAIP2,
+		AmountAtomic:   amt.String(),
+		Inventory:      inv,
+		Orchestration:  orch,
+		Execute:        in.Execute,
 	}, nil
 }
 

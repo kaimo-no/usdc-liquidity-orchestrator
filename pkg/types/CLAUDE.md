@@ -13,6 +13,7 @@ Agent-facing wire shapes for plan I/O (JSON tags only).
 - `Inventory` / `Balance` — client-asserted balances (also bare success body for `POST /v1/inventory`)
 - `InventoryRequest` — `POST /v1/inventory` input (`agent_address` only)
 - `PlanRequest` / `ConsolidateRequest` / `PaymentFundingRequest` / `FundingSource` — HTTP inputs
+- `DepositRequest` / `MoveRequest` — CLI JSON only (no HTTP this cut); fixed-N deposit + self-land move
 - `PlanResponse` / `APIError` / `ExecuteReceipt` — HTTP outputs (`APIError` is also bare error body for inventory)
 - `ExecuteReceipt` — optional `tx_hashes` on successful/partial execute (no notes on wire)
 - `ChainInfo` / `ChainsResponse` — `GET /v1/chains` discovery (`testnet`, `gateway_wallet`)
@@ -20,6 +21,8 @@ Agent-facing wire shapes for plan I/O (JSON tags only).
 ## Invariants
 
 - No custom `MarshalJSON`
-- `pay_to_role` is `"merchant"` for Required; fund steps use `agent_self` in PlanStep
-- Consolidate responses omit `required` / `amount_source` (no merchant claim)
+- `pay_to` / `pay_to_role` are `omitempty` (land Required for move has neither; merchant plans still require pay_to in validation)
+- `pay_to_role` is `"merchant"` for merchant Required; fund steps use `agent_self` in PlanStep
+- Consolidate / deposit responses omit `required` / `amount_source` (no merchant claim)
+- Move self-land emits `required` with land N + dest and `amount_source=self` (no pay_to)
 - `amount_atomic` is always real on-chain units; logical/scale are optional metadata only
