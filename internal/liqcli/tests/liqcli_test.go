@@ -352,6 +352,156 @@ func TestMain_EasyPlanIncomplete_NoStdinHang(t *testing.T) {
 	assert.Contains(t, stderr.String(), "pay-to")
 }
 
+func TestMain_UsageListsDepositMove(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := liqcli.Main([]string{"help"}, strings.NewReader(""), &stdout, &stderr)
+	assert.Equal(t, 0, code)
+	assert.Contains(t, stderr.String(), "deposit")
+	assert.Contains(t, stderr.String(), "move")
+	assert.Contains(t, stderr.String(), "payment shortfall")
+	assert.Contains(t, stderr.String(), "use deposit")
+}
+
+func TestMain_EasyDepositDry(t *testing.T) {
+	agent := "0x" + strings.Repeat("d1", 20)
+	var stdout, stderr bytes.Buffer
+	code := liqcli.Main([]string{
+		"deposit",
+		"--agent", agent,
+		"--source", "arc-testnet",
+		"--amount", "1",
+		"--balance", "arc-testnet=10",
+	}, strings.NewReader(""), &stdout, &stderr)
+	assert.Equal(t, 0, code, "stderr=%s", stderr.String())
+	var resp types.PlanResponse
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &resp))
+	assert.Nil(t, resp.Error)
+	assert.True(t, resp.Plan.DryRun)
+	assert.Equal(t, "circle_gateway_deposit", resp.Plan.Action)
+	assert.Nil(t, resp.Plan.Required)
+	require.NotEmpty(t, resp.Plan.Steps)
+	assert.Equal(t, "agent_self", resp.Plan.Steps[0].RecipientRole)
+	assert.Equal(t, "1000000", resp.Plan.Steps[0].AmountAtomic)
+	// privacy: no agent address in stderr notes on success path either
+	assert.NotContains(t, stderr.String(), agent)
+}
+
+func TestMain_EasyDepositUnderfund_Exit1(t *testing.T) {
+	agent := "0x" + strings.Repeat("d2", 20)
+	var stdout, stderr bytes.Buffer
+	code := liqcli.Main([]string{
+		"deposit",
+		"--agent", agent,
+		"--source", "arc-testnet",
+		"--amount", "100",
+		"--balance", "arc-testnet=1",
+	}, strings.NewReader(""), &stdout, &stderr)
+	assert.Equal(t, 1, code)
+	var resp types.PlanResponse
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &resp))
+	require.NotNil(t, resp.Error)
+	assert.Equal(t, liqerr.CodeInsufficientLiquidity, resp.Error.Code)
+	assert.NotContains(t, stderr.String(), agent)
+	assert.NotContains(t, stderr.String(), "1000000")
+}
+
+func TestMain_EasyDepositMissingSource_Exit2(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := liqcli.Main([]string{
+		"deposit",
+		"--agent", "0x" + strings.Repeat("11", 20),
+		"--amount", "1",
+		"--balance", "arc-testnet=10",
+	}, strings.NewReader(""), &stdout, &stderr)
+	assert.Equal(t, 2, code)
+	assert.Contains(t, stderr.String(), "source")
+}
+
+func TestMain_EasyMoveDry(t *testing.T) {
+	agent := "0x" + strings.Repeat("e1", 20)
+	var stdout, stderr bytes.Buffer
+	code := liqcli.Main([]string{
+		"move",
+		"--agent", agent,
+		"--dest", "arc-testnet",
+		"--amount", "1",
+		"--gateway-balance", "10",
+	}, strings.NewReader(""), &stdout, &stderr)
+	assert.Equal(t, 0, code, "stderr=%s", stderr.String())
+	var resp types.PlanResponse
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &resp))
+	assert.Nil(t, resp.Error)
+	assert.True(t, resp.Plan.DryRun)
+	assert.Equal(t, "circle_gateway_withdraw", resp.Plan.Action)
+	require.NotNil(t, resp.Plan.Required)
+	assert.Equal(t, "self", resp.Plan.AmountSource)
+	assert.Empty(t, resp.Plan.Required.PayTo)
+	assert.NotContains(t, stderr.String(), agent)
+}
+
+func TestMain_EasyMoveInsufficient_Exit0(t *testing.T) {
+	agent := "0x" + strings.Repeat("e2", 20)
+	var stdout, stderr bytes.Buffer
+	code := liqcli.Main([]string{
+		"move",
+		"--agent", agent,
+		"--dest", "arc-testnet",
+		"--amount", "100",
+		"--balance", "arc-testnet=0.000001",
+	}, strings.NewReader(""), &stdout, &stderr)
+	assert.Equal(t, 0, code, "stderr=%s", stderr.String())
+	var resp types.PlanResponse
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &resp))
+	assert.Nil(t, resp.Error)
+	assert.Equal(t, "insufficient", resp.Plan.Action)
+	assert.NotContains(t, stderr.String(), agent)
+}
+
+func TestMain_EasyMoveMissingDest_Exit2(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := liqcli.Main([]string{
+		"move",
+		"--agent", "0x" + strings.Repeat("11", 20),
+		"--amount", "1",
+		"--gateway-balance", "10",
+	}, strings.NewReader(""), &stdout, &stderr)
+	assert.Equal(t, 2, code)
+	assert.Contains(t, stderr.String(), "dest")
+}
+
+func TestMain_DepositExclusiveWithFile(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := liqcli.Main([]string{
+		"deposit",
+		"--source", "arc-testnet",
+		"--amount", "1",
+		"--agent", "0x" + strings.Repeat("11", 20),
+		"-f", "examples/plan.json",
+	}, strings.NewReader(""), &stdout, &stderr)
+	assert.Equal(t, 2, code)
+	assert.Contains(t, stderr.String(), "exclusive")
+}
+
+func TestMain_DepositJSONMode(t *testing.T) {
+	body := `{
+  "source_chain_caip2": "eip155:5042002",
+  "amount_atomic": "500",
+  "inventory": {
+    "agent_address": "0xAgentSelf000000000000000000000000000001",
+    "balances": [
+      {"chain_caip2": "eip155:5042002", "asset": "0x3600000000000000000000000000000000000000",
+       "amount_atomic": "1000", "location": "native"}
+    ]
+  }
+}`
+	var stdout, stderr bytes.Buffer
+	code := liqcli.Main([]string{"deposit", "-f", "-"}, strings.NewReader(body), &stdout, &stderr)
+	assert.Equal(t, 0, code, "stderr=%s", stderr.String())
+	var resp types.PlanResponse
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &resp))
+	assert.Equal(t, "circle_gateway_deposit", resp.Plan.Action)
+}
+
 func TestMain_EasyExclusiveWithFile(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := liqcli.Main([]string{

@@ -1,0 +1,25 @@
+{
+  "dest_chain_caip2": "eip155:5042002",
+  "amount_atomic": "42000000",
+  "inventory": {
+    "agent_address": "0xAgentSelf000000000000000000000000000001",
+    "balances": [
+      {
+        "asset": "USDC",
+        "amount_atomic": "100000000",
+        "location": "circle_gateway"
+      },
+      {
+        "chain_caip2": "eip155:5042002",
+        "asset": "0x3600000000000000000000000000000000000000",
+        "amount_atomic": "20000000",
+        "location": "native"
+      }
+    ]
+  },
+  "orchestration": {
+    "target_chain_caip2": "eip155:5042002",
+    "prefer_rail": "circle_gateway"
+  },
+  "execute": false
+}

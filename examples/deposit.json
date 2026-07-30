@@ -1,0 +1,16 @@
+{
+  "source_chain_caip2": "eip155:5042002",
+  "amount_atomic": "1000000",
+  "inventory": {
+    "agent_address": "0xAgentSelf000000000000000000000000000001",
+    "balances": [
+      {
+        "chain_caip2": "eip155:5042002",
+        "asset": "0x3600000000000000000000000000000000000000",
+        "amount_atomic": "5000000",
+        "location": "native"
+      }
+    ]
+  },
+  "execute": false
+}

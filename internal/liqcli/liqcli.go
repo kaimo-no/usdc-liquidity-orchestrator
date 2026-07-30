@@ -40,6 +40,10 @@ func Main(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runPlanCmd(rest, stdin, stdout, stderr)
 	case "consolidate":
 		return runConsolidateCmd(rest, stdin, stdout, stderr)
+	case "deposit":
+		return runDepositCmd(rest, stdin, stdout, stderr)
+	case "move":
+		return runMoveCmd(rest, stdin, stdout, stderr)
 	case "payment-funding":
 		return runPaymentFundingCmd(rest, stdin, stdout, stderr)
 	case "chains":
@@ -68,23 +72,26 @@ Usage:
   usdc-liq <command> [flags]
 
 Commands (HTTP parity):
-  plan              shortfall-only rebalance plan (POST /v1/plan body)
-  consolidate       Gateway deposit plan (POST /v1/consolidate body)
+  plan              payment shortfall rebalance (merchant pay_to claim; fund agent_self)
+  consolidate       full native balances → circle_gateway (not fixed amount; use deposit)
   payment-funding   scenario full-funding plan (POST /v1/payment-funding body)
   chains            registered corridors (GET /v1/chains)
 
 CLI-only:
+  deposit           fixed-N native → circle_gateway (single source; no pay_to)
+  move              land N on dest agent_self (shortfall-only; no pay_to)
   inventory         load live native + optional Gateway balances (needs agent + RPCs)
   demo              worked scenario + shortfall + consolidate examples
   version           print version
 
-JSON mode (plan | consolidate | payment-funding):
+JSON mode (plan | consolidate | deposit | move | payment-funding):
   -f file           request JSON file (default "-" = stdin)
   --execute         request execute=true (dual-gate env when live)
 
-Easy mode (plan | consolidate) — XOR with -f; incomplete → exit 2 (no stdin hang):
-  --dest REF        dest domain id | name | CAIP-2 (plan required)
-  --sources REFS    comma-separated source chain refs
+Easy mode (plan | consolidate | deposit | move) — XOR with -f; incomplete → exit 2:
+  --dest REF        dest domain id | name | CAIP-2 (plan/move)
+  --source REF      single source chain (deposit)
+  --sources REFS    comma-separated source chain refs (plan/move/allowlist)
   --amount USDC     human USDC (×10^6 atomic); XOR --amount-atomic
   --amount-atomic N atomic USDC string
   --pay-to 0x…      merchant claim (plan only; never fund dest)
@@ -271,6 +278,174 @@ func runConsolidateCmd(args []string, stdin io.Reader, stdout, stderr io.Writer)
 	return writePlanResp(stdout, stderr, resp, outcome)
 }
 
+func runDepositCmd(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("deposit", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	file, execute := addSharedFlags(fs)
+	easy := addEasyFlags(fs)
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	mode, err := DetectPlanMode(fs)
+	if err != nil {
+		fmt.Fprintf(stderr, "%s\n", err.Error())
+		return 2
+	}
+
+	var req types.DepositRequest
+	var keyHex string
+	var rpcOverlay map[string]string
+
+	switch mode {
+	case ModeEasy:
+		in := easyDepositFromFlags(easy, *execute)
+		agent, key, idErr := ResolveAgentIdentity(
+			in.Agent, in.PrivateKeyHex,
+			os.Getenv("AGENT_ADDRESS"), os.Getenv("AGENT_PRIVATE_KEY"),
+		)
+		if idErr != nil {
+			fmt.Fprintf(stderr, "%s\n", sanitizeIdentityErr(idErr))
+			return 2
+		}
+		if vErr := ValidateEasyGates(in.EasyCommon, false); vErr != nil {
+			fmt.Fprintf(stderr, "%s\n", vErr.Error())
+			return 2
+		}
+		if vErr := ValidateEasyDepositRequired(in, agent); vErr != nil {
+			fmt.Fprintf(stderr, "%s\n", vErr.Error())
+			return 2
+		}
+		rpcOverlay, err = ParseRPCMap(in.RPCs, in.Testnet)
+		if err != nil {
+			fmt.Fprintf(stderr, "%s\n", sanitizeEasyErr(err))
+			return 2
+		}
+		inv, invErr := loadEasyInventory(in.EasyCommon, agent, rpcOverlay)
+		if invErr != nil {
+			fmt.Fprintf(stderr, "%s\n", sanitizeEasyErr(invErr))
+			return 1
+		}
+		req, err = BuildDepositRequestFromEasy(in, inv)
+		if err != nil {
+			fmt.Fprintf(stderr, "%s\n", sanitizeEasyErr(err))
+			return 2
+		}
+		keyHex = key
+	default:
+		raw, rerr := readInput(*file, stdin)
+		if rerr != nil {
+			fmt.Fprintf(stderr, "read input: %v\n", rerr)
+			return 1
+		}
+		if err := json.Unmarshal(raw, &req); err != nil {
+			fmt.Fprintf(stderr, "invalid JSON body\n")
+			return 1
+		}
+		if *execute {
+			req.Execute = true
+		}
+		_, keyHex, _ = ResolveAgentIdentity(
+			*easy.agent, *easy.privateKey,
+			os.Getenv("AGENT_ADDRESS"), os.Getenv("AGENT_PRIVATE_KEY"),
+		)
+		rpcOverlay, _ = ParseRPCMap(sliceOf(easy.rpcs), !*easy.mainnet)
+	}
+
+	ex, code := resolveExecutor(req.Execute, execenv.Options{
+		PrivateKeyHex: keyHex,
+		RPCs:          rpcOverlay,
+	}, stdout, stderr)
+	if code != 0 {
+		return code
+	}
+	resp, outcome := planio.RunDeposit(context.Background(), ex, req)
+	return writePlanResp(stdout, stderr, resp, outcome)
+}
+
+func runMoveCmd(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("move", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	file, execute := addSharedFlags(fs)
+	easy := addEasyFlags(fs)
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	mode, err := DetectPlanMode(fs)
+	if err != nil {
+		fmt.Fprintf(stderr, "%s\n", err.Error())
+		return 2
+	}
+
+	var req types.MoveRequest
+	var keyHex string
+	var rpcOverlay map[string]string
+
+	switch mode {
+	case ModeEasy:
+		in := easyMoveFromFlags(easy, *execute)
+		agent, key, idErr := ResolveAgentIdentity(
+			in.Agent, in.PrivateKeyHex,
+			os.Getenv("AGENT_ADDRESS"), os.Getenv("AGENT_PRIVATE_KEY"),
+		)
+		if idErr != nil {
+			fmt.Fprintf(stderr, "%s\n", sanitizeIdentityErr(idErr))
+			return 2
+		}
+		if vErr := ValidateEasyGates(in.EasyCommon, false); vErr != nil {
+			fmt.Fprintf(stderr, "%s\n", vErr.Error())
+			return 2
+		}
+		if vErr := ValidateEasyMoveRequired(in, agent); vErr != nil {
+			fmt.Fprintf(stderr, "%s\n", vErr.Error())
+			return 2
+		}
+		rpcOverlay, err = ParseRPCMap(in.RPCs, in.Testnet)
+		if err != nil {
+			fmt.Fprintf(stderr, "%s\n", sanitizeEasyErr(err))
+			return 2
+		}
+		inv, invErr := loadEasyInventory(in.EasyCommon, agent, rpcOverlay)
+		if invErr != nil {
+			fmt.Fprintf(stderr, "%s\n", sanitizeEasyErr(invErr))
+			return 1
+		}
+		req, err = BuildMoveRequestFromEasy(in, inv)
+		if err != nil {
+			fmt.Fprintf(stderr, "%s\n", sanitizeEasyErr(err))
+			return 2
+		}
+		keyHex = key
+	default:
+		raw, rerr := readInput(*file, stdin)
+		if rerr != nil {
+			fmt.Fprintf(stderr, "read input: %v\n", rerr)
+			return 1
+		}
+		if err := json.Unmarshal(raw, &req); err != nil {
+			fmt.Fprintf(stderr, "invalid JSON body\n")
+			return 1
+		}
+		if *execute {
+			req.Execute = true
+		}
+		_, keyHex, _ = ResolveAgentIdentity(
+			*easy.agent, *easy.privateKey,
+			os.Getenv("AGENT_ADDRESS"), os.Getenv("AGENT_PRIVATE_KEY"),
+		)
+		rpcOverlay, _ = ParseRPCMap(sliceOf(easy.rpcs), !*easy.mainnet)
+	}
+
+	ex, code := resolveExecutor(req.Execute, execenv.Options{
+		PrivateKeyHex: keyHex,
+		RPCs:          rpcOverlay,
+	}, stdout, stderr)
+	if code != 0 {
+		return code
+	}
+	resp, outcome := planio.RunMove(context.Background(), ex, req)
+	return writePlanResp(stdout, stderr, resp, outcome)
+}
+
 func sliceOf(s *stringList) []string {
 	if s == nil {
 		return nil
@@ -278,12 +453,12 @@ func sliceOf(s *stringList) []string {
 	return append([]string(nil), (*s)...)
 }
 
-// easyFlagHolders holds pointers registered on a FlagSet for plan/consolidate.
+// easyFlagHolders holds pointers registered on a FlagSet for plan/consolidate/deposit/move.
 type easyFlagHolders struct {
-	dest, sources, amount, amountAtomic, payTo stringPtr
-	gatewayBalance, agent, privateKey          stringPtr
-	mainnet, live                              *bool
-	balances, rpcs                             *stringList
+	dest, source, sources, amount, amountAtomic, payTo stringPtr
+	gatewayBalance, agent, privateKey                  stringPtr
+	mainnet, live                                      *bool
+	balances, rpcs                                     *stringList
 }
 
 type stringPtr = *string
@@ -292,10 +467,11 @@ func addEasyFlags(fs *flag.FlagSet) easyFlagHolders {
 	var bals, rpcs stringList
 	h := easyFlagHolders{
 		dest:           fs.String("dest", "", "destination chain ref (domain|name|CAIP-2)"),
+		source:         fs.String("source", "", "single source chain ref (deposit)"),
 		sources:        fs.String("sources", "", "comma-separated source chain refs"),
-		amount:         fs.String("amount", "", "human USDC amount (plan)"),
-		amountAtomic:   fs.String("amount-atomic", "", "atomic USDC amount (plan; XOR --amount)"),
-		payTo:          fs.String("pay-to", "", "merchant pay_to claim (plan)"),
+		amount:         fs.String("amount", "", "human USDC amount"),
+		amountAtomic:   fs.String("amount-atomic", "", "atomic USDC amount (XOR --amount)"),
+		payTo:          fs.String("pay-to", "", "merchant pay_to claim (plan only)"),
 		gatewayBalance: fs.String("gateway-balance", "", "asserted circle_gateway human USDC"),
 		agent:          fs.String("agent", "", "agent wallet address"),
 		privateKey:     fs.String("private-key", "", "hex ECDSA key (prefer AGENT_PRIVATE_KEY env)"),
@@ -320,6 +496,23 @@ func easyPlanFromFlags(h easyFlagHolders, execute bool) EasyPlanInput {
 
 func easyConsolidateFromFlags(h easyFlagHolders, execute bool) EasyConsolidateInput {
 	return EasyConsolidateInput{EasyCommon: easyCommonFromFlags(h, execute)}
+}
+
+func easyDepositFromFlags(h easyFlagHolders, execute bool) EasyDepositInput {
+	return EasyDepositInput{
+		EasyCommon:   easyCommonFromFlags(h, execute),
+		Source:       *h.source,
+		Amount:       *h.amount,
+		AmountAtomic: *h.amountAtomic,
+	}
+}
+
+func easyMoveFromFlags(h easyFlagHolders, execute bool) EasyMoveInput {
+	return EasyMoveInput{
+		EasyCommon:   easyCommonFromFlags(h, execute),
+		Amount:       *h.amount,
+		AmountAtomic: *h.amountAtomic,
+	}
 }
 
 func easyCommonFromFlags(h easyFlagHolders, execute bool) EasyCommon {

@@ -11,15 +11,17 @@ Optional gitignored `.env` is loaded at startup (`internal/envfile`).
 
 | Command | Input | Output |
 |---|---|---|
-| `plan` | JSON (`-f`) **or** easy flags | `PlanResponse` (shortfall-only) |
-| `consolidate` | JSON **or** easy flags | `PlanResponse` |
+| `plan` | JSON (`-f`) **or** easy flags | `PlanResponse` (payment shortfall; merchant pay_to) |
+| `consolidate` | JSON **or** easy flags | `PlanResponse` (full native → gateway) |
+| `deposit` | JSON **or** easy flags | `PlanResponse` (fixed-N single-source deposit; CLI-only) |
+| `move` | JSON **or** easy flags | `PlanResponse` (land N on dest agent_self; CLI-only) |
 | `payment-funding` | JSON body | `PlanResponse` |
 | `chains` | none | `ChainsResponse` |
 | `inventory` | `-agent` or `AGENT_ADDRESS` + RPC env | wire `Inventory` |
 | `demo` | scenario env | multi-plan demo |
 | `version` | none | version string |
 
-## Easy mode (plan / consolidate)
+## Easy mode (plan / consolidate / deposit / move)
 
 Flag-first path — no JSON file required. **Mutually exclusive with `-f`**.
 
@@ -54,8 +56,14 @@ usdc-liq plan \
 # Execute still dual-gated (ENABLE_TESTNET_EXECUTE=1 + key + RPCs)
 ENABLE_TESTNET_EXECUTE=1 usdc-liq plan … --live --execute
 
-# Consolidate: no pay_to / amount
+# Consolidate: full balances → gateway (not fixed amount; use deposit)
 usdc-liq consolidate --agent 0x… --balance base-sepolia=10
+
+# Deposit: fixed N on one source (no pay_to)
+usdc-liq deposit --agent 0x… --source base-sepolia --amount 10 --balance base-sepolia=20
+
+# Move: land N on dest agent_self (shortfall-only; no pay_to)
+usdc-liq move --agent 0x… --dest arc-testnet --amount 42 --gateway-balance 100
 ```
 
 | Rule | Behaviour |

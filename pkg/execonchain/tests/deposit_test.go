@@ -148,6 +148,22 @@ func consolidatePlan(t *testing.T, agent string, amount string) liquidity.Plan {
 	return p
 }
 
+func fixedDepositPlan(t *testing.T, agent string, amount string) liquidity.Plan {
+	t.Helper()
+	inv := liquidity.Inventory{
+		AgentAddress: agent,
+		Balances: []liquidity.Balance{{
+			ChainCAIP2: baseSepCAIP2, Asset: baseSepUSDC,
+			AmountAtomic: decimal.RequireFromString(amount),
+			Location:     liquidity.LocationNative,
+		}},
+	}
+	p, err := liquidity.PlanGatewayDeposit(inv, baseSepCAIP2, decimal.RequireFromString(amount), nil, nil)
+	require.NoError(t, err)
+	require.Equal(t, liquidity.ActionCircleGatewayDeposit, p.Action)
+	return p
+}
+
 func TestNewDepositExecutor_RefusesMainnetRPC(t *testing.T) {
 	_, hex, _ := testKey(t)
 	_, err := execonchain.NewDepositExecutor(execonchain.Config{
@@ -190,6 +206,24 @@ func TestDepositExecutor_HappyPath(t *testing.T) {
 	assert.Equal(t, uint8(types.DynamicFeeTxType), mock.sent[0].Type())
 	assert.NotNil(t, mock.sent[0].GasTipCap())
 	assert.NotNil(t, mock.sent[0].GasFeeCap())
+}
+
+func TestDepositExecutor_FixedDepositAction_DepositOnly(t *testing.T) {
+	_, hex, agent := testKey(t)
+	mock := newMock(84532)
+	ex, err := execonchain.NewDepositExecutor(execonchain.Config{
+		PrivateKeyHex: hex,
+		RPCs:          map[string]string{baseSepCAIP2: "http://mock.local"},
+		Dial:          dialMock(mock),
+		WaitTimeout:   time.Second,
+	})
+	require.NoError(t, err)
+
+	plan := fixedDepositPlan(t, agent, "1000")
+	rcpt, err := ex.Execute(context.Background(), plan)
+	require.NoError(t, err)
+	require.Len(t, rcpt.TxHashes, 2)
+	assert.Equal(t, 2, mock.sends)
 }
 
 func TestDepositExecutor_MaxAmountAtomic(t *testing.T) {

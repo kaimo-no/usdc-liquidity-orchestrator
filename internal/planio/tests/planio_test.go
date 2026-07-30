@@ -166,6 +166,84 @@ func TestRunConsolidate_Dry(t *testing.T) {
 	assert.True(t, resp.Plan.DryRun)
 }
 
+func TestRunDeposit_Dry(t *testing.T) {
+	req := types.DepositRequest{
+		Inventory: types.Inventory{
+			AgentAddress: agentAddr,
+			Balances: []types.Balance{{
+				ChainCAIP2: arcCAIP2, Asset: arcUSDC,
+				AmountAtomic: "1000", Location: "native",
+			}},
+		},
+		SourceChainCAIP2: arcCAIP2,
+		AmountAtomic:     "500",
+	}
+	resp, out := planio.RunDeposit(context.Background(), nil, req)
+	assert.Equal(t, planio.StampOK, out)
+	assert.Nil(t, resp.Error)
+	assert.Equal(t, "circle_gateway_deposit", resp.Plan.Action)
+	assert.True(t, resp.Plan.DryRun)
+	assert.Nil(t, resp.Plan.Required)
+}
+
+func TestRunDeposit_Underfund_StampFail(t *testing.T) {
+	req := types.DepositRequest{
+		Inventory: types.Inventory{
+			AgentAddress: agentAddr,
+			Balances: []types.Balance{{
+				ChainCAIP2: arcCAIP2, Asset: arcUSDC,
+				AmountAtomic: "100", Location: "native",
+			}},
+		},
+		SourceChainCAIP2: arcCAIP2,
+		AmountAtomic:     "1000",
+	}
+	resp, out := planio.RunDeposit(context.Background(), nil, req)
+	assert.Equal(t, planio.StampFail, out)
+	require.NotNil(t, resp.Error)
+	assert.Equal(t, liqerr.CodeInsufficientLiquidity, resp.Error.Code)
+}
+
+func TestRunMove_DryWithdraw(t *testing.T) {
+	req := types.MoveRequest{
+		DestChainCAIP2: arcCAIP2,
+		AmountAtomic:   "1000",
+		Inventory: types.Inventory{
+			AgentAddress: agentAddr,
+			Balances: []types.Balance{{
+				Asset: "USDC", AmountAtomic: "5000", Location: "circle_gateway",
+			}},
+		},
+	}
+	resp, out := planio.RunMove(context.Background(), nil, req)
+	assert.Equal(t, planio.StampOK, out)
+	assert.Nil(t, resp.Error)
+	assert.Equal(t, "circle_gateway_withdraw", resp.Plan.Action)
+	assert.True(t, resp.Plan.DryRun)
+	require.NotNil(t, resp.Plan.Required)
+	assert.Equal(t, "self", resp.Plan.AmountSource)
+	assert.Empty(t, resp.Plan.Required.PayTo)
+}
+
+func TestRunMove_Insufficient_StampOK(t *testing.T) {
+	req := types.MoveRequest{
+		DestChainCAIP2: arcCAIP2,
+		AmountAtomic:   "1000000",
+		Inventory: types.Inventory{
+			AgentAddress: agentAddr,
+			Balances: []types.Balance{{
+				ChainCAIP2: arcCAIP2, Asset: arcUSDC,
+				AmountAtomic: "1", Location: "native",
+			}},
+		},
+	}
+	resp, out := planio.RunMove(context.Background(), nil, req)
+	assert.Equal(t, planio.StampOK, out)
+	assert.Nil(t, resp.Error)
+	assert.Equal(t, "insufficient", resp.Plan.Action)
+	assert.True(t, resp.Plan.DryRun)
+}
+
 func TestRunConsolidate_ExecuteSuccess(t *testing.T) {
 	ex := stubExecutor{receipt: liquidity.Receipt{TxHashes: []string{"0xabc"}}}
 	req := types.ConsolidateRequest{
