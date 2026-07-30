@@ -30,12 +30,16 @@ go run ./cmd/usdc-liq consolidate -f examples/consolidate-testnet.json
 go run ./cmd/usdc-liq payment-funding -f -   # stdin JSON
 go run ./cmd/usdc-liq chains
 go run ./cmd/usdc-liq version
+# Easy mode (plan/consolidate): domain|name|caip2 + human USDC; exclusive with -f
+go run ./cmd/usdc-liq plan \
+  --agent 0x… --pay-to 0x… --dest arc-testnet --amount 42 \
+  --balance base-sepolia=100 --gateway-balance 80
 # CLI-only:
 go run ./cmd/usdc-liq inventory -agent 0x…   # needs RPC env; no secrets in notes
 go run ./cmd/usdc-liq demo
 ```
 
-Dry is default (no live config). `--execute` needs dual-gate env (`ENABLE_TESTNET_EXECUTE=1` + key + RPCs); incomplete config exits 1 sanitized without Execute. Body limit 1 MiB. Product skill: [`skills/usdc-liquidity/`](./skills/usdc-liquidity/).
+Dry is default (no live config). Easy mode builds wire requests in-process (no stdin hang when incomplete → exit 2). `--live` loads testnet inventory via RPCs (not with `--balance`). `--execute` needs dual-gate env (`ENABLE_TESTNET_EXECUTE=1` + key + RPCs); incomplete config exits 1 sanitized without Execute. Prefer `AGENT_PRIVATE_KEY` env over `--private-key` (argv may be visible). Body limit 1 MiB. Product skill: [`skills/usdc-liquidity/`](./skills/usdc-liquidity/).
 
 ## Demo (worked example)
 

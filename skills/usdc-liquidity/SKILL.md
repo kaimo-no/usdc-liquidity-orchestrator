@@ -24,6 +24,8 @@ Always prefer **dry** first (`execute=false` / no `--execute`):
 go run ./cmd/usdc-liq plan -f examples/plan.json
 go run ./cmd/usdc-liq consolidate -f examples/consolidate-testnet.json
 go run ./cmd/usdc-liq chains
+# Easy mode (XOR -f): --dest --amount --pay-to --balance / --live …
+# go run ./cmd/usdc-liq plan --agent 0x… --pay-to 0x… --dest 26 --amount 42 --gateway-balance 100
 ```
 
 ```bash

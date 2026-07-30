@@ -109,6 +109,91 @@ func TestGuardFromEnv_ValidMax(t *testing.T) {
 	assert.True(t, g.MaxAmountAtomic.IsPositive())
 }
 
+func TestBuildExecutor_PrivateKeyHexOverride(t *testing.T) {
+	t.Setenv("ENABLE_TESTNET_EXECUTE", "1")
+	t.Setenv("AGENT_PRIVATE_KEY", "") // empty env; flag/opts must supply
+	t.Setenv("RPC_URL_BASE_SEPOLIA", "https://example.invalid")
+	// Invalid key shape still fails at DepositExecutor — proves opts key was used (env empty).
+	ex, err := execenv.BuildExecutor(execenv.Options{
+		PrivateKeyHex: "not-a-key",
+	})
+	assert.Nil(t, ex)
+	require.Error(t, err)
+	// Must not require "AGENT_PRIVATE_KEY required" — opts path engaged.
+	assert.NotContains(t, err.Error(), "AGENT_PRIVATE_KEY required")
+}
+
+func TestBuildExecutor_RPCsOverlayWins(t *testing.T) {
+	t.Setenv("ENABLE_TESTNET_EXECUTE", "1")
+	t.Setenv("AGENT_PRIVATE_KEY", "0x"+hex64("ab"))
+	// No env RPCs — overlay alone must satisfy len(rpcs)>0 for testnet-exec chain.
+	t.Setenv("RPC_URL_BASE_SEPOLIA", "")
+	t.Setenv("RPC_URL_ARBITRUM_SEPOLIA", "")
+	t.Setenv("RPC_URL_ARC_TESTNET", "")
+	t.Setenv("RPC_URLS_JSON", "")
+	for _, e := range os.Environ() {
+		eq := strings.IndexByte(e, '=')
+		if eq <= 0 {
+			continue
+		}
+		name := e[:eq]
+		if strings.HasPrefix(name, "RPC_URL_eip155_") || strings.HasPrefix(name, "RPC_URL_solana_") {
+			t.Setenv(name, "")
+		}
+	}
+	ex, err := execenv.BuildExecutor(execenv.Options{
+		PrivateKeyHex: "0x" + hex64("ab"),
+		RPCs: map[string]string{
+			"eip155:84532": "https://overlay.example.invalid",
+		},
+	})
+	// Key may still fail crypto parse depending on hex seed; overlay must not be "RPC required".
+	if err != nil {
+		assert.NotContains(t, err.Error(), "RPC required")
+		assert.NotContains(t, err.Error(), "testnet EVM RPC required")
+	}
+	_ = ex
+}
+
+func TestBuildExecutor_RPCsOverlayIgnoredMainnet(t *testing.T) {
+	t.Setenv("ENABLE_TESTNET_EXECUTE", "1")
+	t.Setenv("AGENT_PRIVATE_KEY", "0x"+hex64("cd"))
+	t.Setenv("RPC_URL_BASE_SEPOLIA", "")
+	t.Setenv("RPC_URL_ARBITRUM_SEPOLIA", "")
+	t.Setenv("RPC_URL_ARC_TESTNET", "")
+	t.Setenv("RPC_URLS_JSON", "")
+	for _, e := range os.Environ() {
+		eq := strings.IndexByte(e, '=')
+		if eq <= 0 {
+			continue
+		}
+		name := e[:eq]
+		if strings.HasPrefix(name, "RPC_URL_eip155_") || strings.HasPrefix(name, "RPC_URL_solana_") {
+			t.Setenv(name, "")
+		}
+	}
+	// Mainnet CAIP-2 only — filtered out → still no RPC.
+	ex, err := execenv.BuildExecutor(execenv.Options{
+		RPCs: map[string]string{
+			"eip155:8453": "https://mainnet.example.invalid",
+		},
+	})
+	assert.Nil(t, ex)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "RPC")
+}
+
+func TestBuildExecutor_EnableOff_StillUnconfigured_WithOpts(t *testing.T) {
+	t.Setenv("ENABLE_TESTNET_EXECUTE", "")
+	ex, err := execenv.BuildExecutor(execenv.Options{
+		PrivateKeyHex: "0x" + hex64("ee"),
+		RPCs:          map[string]string{"eip155:84532": "https://x"},
+	})
+	require.NoError(t, err)
+	_, ok := ex.(liquidity.UnconfiguredExecutor)
+	assert.True(t, ok)
+}
+
 func hex64(seed string) string {
 	// 64 hex chars for a plausible ECDSA private key shape (may still fail crypto parse).
 	out := ""

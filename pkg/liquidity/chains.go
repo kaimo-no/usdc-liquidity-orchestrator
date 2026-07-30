@@ -1,6 +1,11 @@
 package liquidity
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+
+	liqerr "github.com/kaimo-no/usdc-liquidity-orchestrator/pkg/errors"
+)
 
 // ChainInfo describes a registered EVM corridor for plan / future execute.
 // GatewayDomain is Circle's domain id (same numbering as CCTP/Gateway).
@@ -54,6 +59,83 @@ func LookupChain(caip2 string) (ChainInfo, bool) {
 		}
 	}
 	return ChainInfo{}, false
+}
+
+// LookupByGatewayDomain finds the single registry row with GatewayDomain == domain
+// and Testnet == testnet. Zero or multiple hits → false (caller treats as unknown/ambiguous).
+func LookupByGatewayDomain(domain int, testnet bool) (ChainInfo, bool) {
+	var hit *ChainInfo
+	for i := range chainRegistry {
+		c := &chainRegistry[i]
+		if c.GatewayDomain == domain && c.Testnet == testnet {
+			if hit != nil {
+				return ChainInfo{}, false
+			}
+			hit = c
+		}
+	}
+	if hit == nil {
+		return ChainInfo{}, false
+	}
+	return *hit, true
+}
+
+// ResolveChainRef maps a CLI/operator chain reference to a registry row.
+//
+//  1. CAIP-2 (contains ":") → LookupChain; testnet filter ignored (row is authoritative)
+//  2. exact Name match (case-insensitive trim only; no prefix/fuzzy)
+//  3. whole-string decimal Gateway domain → LookupByGatewayDomain(n, testnet)
+//
+// Empty, unknown, or ambiguous refs return a coded invalid_query error.
+func ResolveChainRef(ref string, testnet bool) (ChainInfo, error) {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return ChainInfo{}, liqerr.New(liqerr.CodeInvalidQuery, "chain ref: empty")
+	}
+	if strings.Contains(ref, ":") {
+		c, ok := LookupChain(ref)
+		if !ok {
+			return ChainInfo{}, liqerr.New(liqerr.CodeInvalidQuery, "chain ref: unknown CAIP-2 %q", ref)
+		}
+		return c, nil
+	}
+	var nameHits []ChainInfo
+	for _, c := range chainRegistry {
+		if strings.EqualFold(c.Name, ref) {
+			nameHits = append(nameHits, c)
+		}
+	}
+	if len(nameHits) > 1 {
+		return ChainInfo{}, liqerr.New(liqerr.CodeInvalidQuery, "chain ref: ambiguous name %q", ref)
+	}
+	if len(nameHits) == 1 {
+		return nameHits[0], nil
+	}
+	if !isAllDigits(ref) {
+		return ChainInfo{}, liqerr.New(liqerr.CodeInvalidQuery, "chain ref: unknown %q", ref)
+	}
+	domain, err := strconv.Atoi(ref)
+	if err != nil {
+		return ChainInfo{}, liqerr.New(liqerr.CodeInvalidQuery, "chain ref: invalid domain %q", ref)
+	}
+	c, ok := LookupByGatewayDomain(domain, testnet)
+	if !ok {
+		return ChainInfo{}, liqerr.New(liqerr.CodeInvalidQuery,
+			"chain ref: unknown gateway domain %d for testnet=%v", domain, testnet)
+	}
+	return c, nil
+}
+
+func isAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // DefaultUSDC returns the registered native USDC contract for a chain, if any.

@@ -20,6 +20,11 @@ type Options struct {
 	// RequireLoopbackListen, when non-empty and ENABLE_TESTNET_EXECUTE=1,
 	// must bind only to loopback (HTTP server). Empty skips the check (CLI).
 	RequireLoopbackListen string
+	// PrivateKeyHex, when non-empty, overrides AGENT_PRIVATE_KEY. Never log.
+	PrivateKeyHex string
+	// RPCs optional overlay after env load; flag/CAIP-2 keys win. Only
+	// testnet-executable chains are kept for DepositExecutor.
+	RPCs map[string]string
 }
 
 // BuildExecutor returns UnconfiguredExecutor unless dual-gated testnet execute is on.
@@ -38,13 +43,28 @@ func BuildExecutor(opts Options) (liquidity.Executor, error) {
 	if opts.RequireLoopbackListen != "" && !IsLoopbackListen(opts.RequireLoopbackListen) {
 		return nil, fmt.Errorf("ENABLE_TESTNET_EXECUTE requires loopback LISTEN_ADDR (127.0.0.1, ::1, or localhost)")
 	}
-	key := strings.TrimSpace(os.Getenv("AGENT_PRIVATE_KEY"))
+	key := strings.TrimSpace(opts.PrivateKeyHex)
+	if key == "" {
+		key = strings.TrimSpace(os.Getenv("AGENT_PRIVATE_KEY"))
+	}
 	if key == "" {
 		return nil, fmt.Errorf("AGENT_PRIVATE_KEY required when ENABLE_TESTNET_EXECUTE=1")
 	}
 	rpcs, err := rpcenv.LoadEVMTestnetExecuteRPCs()
 	if err != nil {
 		return nil, err
+	}
+	if rpcs == nil {
+		rpcs = map[string]string{}
+	}
+	for caip, url := range opts.RPCs {
+		caip, url = strings.TrimSpace(caip), strings.TrimSpace(url)
+		if caip == "" || url == "" {
+			continue
+		}
+		if liquidity.IsTestnetExecutableChain(caip) {
+			rpcs[caip] = url
+		}
 	}
 	if len(rpcs) == 0 {
 		return nil, fmt.Errorf("testnet EVM RPC required when ENABLE_TESTNET_EXECUTE=1 (RPC_URL_BASE_SEPOLIA / ARBITRUM_SEPOLIA / ARC_TESTNET, RPC_URL_eip155_*, or RPC_URLS_JSON)")
