@@ -8,6 +8,7 @@ Pre-production / hackathon ops checklist for **usdc-liquidity-orchestrator**.
 - `cmd/server` is stateless; safe to run ephemerally
 - Inventory is request-scoped — do not persist balances server-side
 - Optional local `.env` (gitignored): copy from `.env.example`; `internal/envfile` never logs values
+- `cmd/server` and `cmd/demo` both load `.env` at startup (does not override existing process env)
 - Demo payment scenario (`PAYMENT_*`, `SOURCE_AMOUNT_*`, `USDC_SCALE_FACTOR`) is **CLI-only** — not applied to HTTP `/v1/plan`
 
 ## Optional testnet Gateway execute
@@ -33,7 +34,7 @@ Supported actions:
 | `circle_gateway_deposit_withdraw` | Deposits, then EIP-712 burn intents + `POST /v1/transfer` + `gatewayMint` on dest |
 | `circle_gateway_withdraw` | Burn intent + transfer + mint (no deposits) |
 
-Burn/mint `destinationRecipient` is always the agent (never merchant `pay_to`). Partial failures return hashes + `executed=false`. After deposits, transfer API is retried (default 5×) because Gateway needs deposit finality before balances are transferable.
+Burn/mint `destinationRecipient` is always the agent (never merchant `pay_to`). Partial failures return hashes + `executed=false`. After deposits, transfer API is retried (default 5×); Base/Arb need ~13–19m confirmations before Gateway balances/attestations (Circle docs). Withdraw-only with empty `from_chain` allocates burns from live `POST /v1/balances`, skipping domains at/below maxFee floor (~2.01 USDC default).
 
 ```bash
 # Example (local only — never commit key):

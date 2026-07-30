@@ -21,6 +21,7 @@ import (
 
 	"github.com/shopspring/decimal"
 
+	"github.com/kaimo-no/usdc-liquidity-orchestrator/internal/envfile"
 	"github.com/kaimo-no/usdc-liquidity-orchestrator/internal/httpserver"
 	"github.com/kaimo-no/usdc-liquidity-orchestrator/internal/rpcenv"
 	"github.com/kaimo-no/usdc-liquidity-orchestrator/pkg/execonchain"
@@ -28,6 +29,12 @@ import (
 )
 
 func main() {
+	// Optional local .env (never logs values; does not override existing env).
+	// Same pattern as cmd/demo so dual-gate execute vars can live in gitignored .env.
+	if err := envfile.Load(".env"); err != nil {
+		log.Fatal(err)
+	}
+
 	addr := envOr("LISTEN_ADDR", ":8088")
 	ex, err := buildExecutor(addr)
 	if err != nil {

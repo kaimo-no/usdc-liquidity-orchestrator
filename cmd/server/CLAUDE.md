@@ -28,6 +28,8 @@ API error messages use stable `pkg/errors` Message only — never raw RPC string
 
 ## Env (execute dual gate)
 
+Optional gitignored `.env` is loaded at startup via `internal/envfile` (does not override process env). VS Code: use **HTTP Server (testnet execute)** launch config for live rails.
+
 | Var | Notes |
 |---|---|
 | `LISTEN_ADDR` | default `:8088`; **must be loopback** when execute enabled |

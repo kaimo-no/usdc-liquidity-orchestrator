@@ -75,10 +75,11 @@ Requires the [Go extension](https://marketplace.visualstudio.com/items?itemName=
 
 1. Open this repo as the workspace folder
 2. **Run and Debug** → choose a configuration:
-   - **HTTP Server** — `cmd/server` on `LISTEN_ADDR=:8088`
-   - **Demo (CLI)** — `cmd/demo` worked examples (exits when done)
+   - **HTTP Server** — plan-only `cmd/server` on `LISTEN_ADDR=:8088`
+   - **HTTP Server (testnet execute)** — loads `.env`, forces loopback + `ENABLE_TESTNET_EXECUTE=1`
+   - **Demo (CLI)** — `cmd/demo` worked examples (exits when done; loads `.env`)
 
-Configs live in [`.vscode/launch.json`](./.vscode/launch.json).
+Configs live in [`.vscode/launch.json`](./.vscode/launch.json). UI amounts are **human USDC** (browser converts ×10^6 for the API).
 
 ## Docker
 

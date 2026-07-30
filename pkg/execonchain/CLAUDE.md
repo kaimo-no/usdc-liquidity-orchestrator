@@ -17,7 +17,7 @@ Optional **testnet-only** Circle Gateway executor (go-ethereum). Implements `liq
 |---|---|
 | `circle_gateway_consolidate` | Re-derived deposit prepare_calls only |
 | `circle_gateway_deposit_withdraw` | Deposits → EIP-712 burn intent(s) → `POST /v1/transfer` → `gatewayMint` on dest |
-| `circle_gateway_withdraw` | Burn intent + transfer + mint (source = step `from_chain` or same-domain dest) |
+| `circle_gateway_withdraw` | Burn + transfer + mint; empty `from_chain` → allocate from live Gateway `/v1/balances` (multi-domain) |
 
 ## Invariants
 
@@ -27,7 +27,8 @@ Optional **testnet-only** Circle Gateway executor (go-ethereum). Implements `liq
 - **Burn/mint destinationRecipient = agent_self only** — never merchant `pay_to`
 - Key address must `EqualFold` plan `AgentAddress`
 - `eth_chainId` must match `eip155:N` before first tx on a chain
-- Transfer API retries (default 5×) after deposits — deposits need Gateway finality
+- Transfer API retries (default 5×) after deposits — Base/Arb need ~13–19m finality (Circle docs)
+- Burn `maxFee` capped below burn `value` (default 2.01 USDC must not exceed 1 USDC source burns)
 - Partial fail: return hashes so far + error (`executed` stamped false by HTTP)
 - Fixed `pkg/errors` codes — no raw RPC / Gateway HTTP bodies to callers
 - No mainnet execute; no CCTP
