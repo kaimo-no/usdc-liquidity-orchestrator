@@ -377,7 +377,7 @@ func loadLiveInventory(agent string, rpcOverlay map[string]string) (types.Invent
 		// Sanitized fixed message — no RPC / balance / address details.
 		return types.Inventory{}, fmt.Errorf("inventory load failed")
 	}
-	return inventoryToWire(inv), nil
+	return liquidity.InventoryToWire(inv), nil
 }
 
 func sanitizeIdentityErr(err error) string {
