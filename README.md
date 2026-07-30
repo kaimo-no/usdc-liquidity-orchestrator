@@ -60,6 +60,12 @@ CLI extras: `inventory` · `demo` · `version`
 go run ./cmd/usdc-liq plan -f examples/plan.json
 go run ./cmd/usdc-liq consolidate -f examples/consolidate-testnet.json
 go run ./cmd/usdc-liq chains
+
+# Easy mode (no JSON; domain ids + human USDC; XOR with -f)
+go run ./cmd/usdc-liq plan \
+  --agent 0xAgent… --pay-to 0xMerchant… \
+  --dest 26 --amount 42 --sources 6 \
+  --balance 6=100 --gateway-balance 80
 ```
 
 Product skill for agents: [`skills/usdc-liquidity/`](./skills/usdc-liquidity/).

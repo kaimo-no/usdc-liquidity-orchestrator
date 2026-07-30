@@ -13,7 +13,7 @@ Testnet-ready: multi-chain **consolidate** deposits + unsigned **prepare_calls**
 | `PlanOrchestration` | Shortfall-only rebalance + `Orchestration` + optional `FeeConfig` |
 | `PlanPaymentFunding` | Scenario full-funding (not shortfall): hard-coded source deposits + full withdraw |
 | `PlanConsolidate` | Full-balance Gateway deposits (no pay_to/fee); action `circle_gateway_consolidate` |
-| `ListChains` / `LookupChain` / `GatewayWalletAddress` | Registry + testnet/mainnet Gateway Wallet |
+| `ListChains` / `LookupChain` / `LookupByGatewayDomain` / `ResolveChainRef` / `GatewayWalletAddress` | Registry + domain/name/CAIP-2 resolve + Gateway Wallet |
 | `PlanToWire` | Agent-facing `types.Plan` stamps (+ fee + prepare_calls; optional logical/scale) |
 | `InventoryToWire` / `InventoryFromWire` / `OrchestrationFromWire` / `FeeConfigFromWire` | Wire helpers |
 | `Guard` | MaxAmountAtomic + AllowedAgentAddresses; dual predicates (merchant claim vs fund-moving) |

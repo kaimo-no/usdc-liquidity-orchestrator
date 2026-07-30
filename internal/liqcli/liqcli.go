@@ -78,9 +78,24 @@ CLI-only:
   demo              worked scenario + shortfall + consolidate examples
   version           print version
 
-Shared flags (plan | consolidate | payment-funding):
-  -f file     request JSON file (default "-" = stdin)
-  --execute   request execute=true (requires dual-gate env when live)
+JSON mode (plan | consolidate | payment-funding):
+  -f file           request JSON file (default "-" = stdin)
+  --execute         request execute=true (dual-gate env when live)
+
+Easy mode (plan | consolidate) — XOR with -f; incomplete → exit 2 (no stdin hang):
+  --dest REF        dest domain id | name | CAIP-2 (plan required)
+  --sources REFS    comma-separated source chain refs
+  --amount USDC     human USDC (×10^6 atomic); XOR --amount-atomic
+  --amount-atomic N atomic USDC string
+  --pay-to 0x…      merchant claim (plan only; never fund dest)
+  --balance REF=USDC  asserted native (repeatable; not with --live)
+  --gateway-balance USDC  asserted circle_gateway unified balance
+  --live            load inventory via RPCs (not with balances; testnet only)
+  --agent 0x…       agent wallet (or derive from key / AGENT_ADDRESS)
+  --private-key HEX never log; prefer env AGENT_PRIVATE_KEY (argv is visible)
+  --rpc REF=URL     RPC overlay (repeatable); merges over env
+  --mainnet         resolve domain ids as mainnet (default testnet)
+  --execute         dual-gated live execute (ENABLE_TESTNET_EXECUTE=1)
 
 Exit codes: 0 success, 1 plan/execute failure, 2 usage.
 JSON always on stdout; notes on stderr (no secrets/balances/RPC).
@@ -91,23 +106,80 @@ func runPlanCmd(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("plan", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	file, execute := addSharedFlags(fs)
+	easy := addEasyFlags(fs)
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	raw, err := readInput(*file, stdin)
+	mode, err := DetectPlanMode(fs)
 	if err != nil {
-		fmt.Fprintf(stderr, "read input: %v\n", err)
-		return 1
+		fmt.Fprintf(stderr, "%s\n", err.Error())
+		return 2
 	}
+
 	var req types.PlanRequest
-	if err := json.Unmarshal(raw, &req); err != nil {
-		fmt.Fprintf(stderr, "invalid JSON body\n")
-		return 1
+	var keyHex string
+	var rpcOverlay map[string]string
+
+	switch mode {
+	case ModeEasy:
+		in := easyPlanFromFlags(easy, *execute)
+		agent, key, idErr := ResolveAgentIdentity(
+			in.Agent, in.PrivateKeyHex,
+			os.Getenv("AGENT_ADDRESS"), os.Getenv("AGENT_PRIVATE_KEY"),
+		)
+		if idErr != nil {
+			fmt.Fprintf(stderr, "%s\n", sanitizeIdentityErr(idErr))
+			return 2
+		}
+		if vErr := ValidateEasyGates(in.EasyCommon, true); vErr != nil {
+			fmt.Fprintf(stderr, "%s\n", vErr.Error())
+			return 2
+		}
+		if vErr := ValidateEasyPlanRequired(in, agent); vErr != nil {
+			fmt.Fprintf(stderr, "%s\n", vErr.Error())
+			return 2
+		}
+		rpcOverlay, err = ParseRPCMap(in.RPCs, in.Testnet)
+		if err != nil {
+			fmt.Fprintf(stderr, "%s\n", sanitizeEasyErr(err))
+			return 2
+		}
+		inv, invErr := loadEasyInventory(in.EasyCommon, agent, rpcOverlay)
+		if invErr != nil {
+			fmt.Fprintf(stderr, "%s\n", sanitizeEasyErr(invErr))
+			return 1
+		}
+		req, err = BuildPlanRequestFromEasy(in, inv)
+		if err != nil {
+			fmt.Fprintf(stderr, "%s\n", sanitizeEasyErr(err))
+			return 2
+		}
+		keyHex = key
+	default:
+		raw, rerr := readInput(*file, stdin)
+		if rerr != nil {
+			fmt.Fprintf(stderr, "read input: %v\n", rerr)
+			return 1
+		}
+		if err := json.Unmarshal(raw, &req); err != nil {
+			fmt.Fprintf(stderr, "invalid JSON body\n")
+			return 1
+		}
+		if *execute {
+			req.Execute = true
+		}
+		// Runtime overrides apply to JSON mode execute as well.
+		_, keyHex, _ = ResolveAgentIdentity(
+			*easy.agent, *easy.privateKey,
+			os.Getenv("AGENT_ADDRESS"), os.Getenv("AGENT_PRIVATE_KEY"),
+		)
+		rpcOverlay, _ = ParseRPCMap(sliceOf(easy.rpcs), !*easy.mainnet)
 	}
-	if *execute {
-		req.Execute = true
-	}
-	ex, code := resolveExecutor(req.Execute, stdout, stderr)
+
+	ex, code := resolveExecutor(req.Execute, execenv.Options{
+		PrivateKeyHex: keyHex,
+		RPCs:          rpcOverlay,
+	}, stdout, stderr)
 	if code != 0 {
 		return code
 	}
@@ -119,28 +191,212 @@ func runConsolidateCmd(args []string, stdin io.Reader, stdout, stderr io.Writer)
 	fs := flag.NewFlagSet("consolidate", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	file, execute := addSharedFlags(fs)
+	easy := addEasyFlags(fs)
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	raw, err := readInput(*file, stdin)
+	mode, err := DetectPlanMode(fs)
 	if err != nil {
-		fmt.Fprintf(stderr, "read input: %v\n", err)
-		return 1
+		fmt.Fprintf(stderr, "%s\n", err.Error())
+		return 2
 	}
+
 	var req types.ConsolidateRequest
-	if err := json.Unmarshal(raw, &req); err != nil {
-		fmt.Fprintf(stderr, "invalid JSON body\n")
-		return 1
+	var keyHex string
+	var rpcOverlay map[string]string
+
+	switch mode {
+	case ModeEasy:
+		in := easyConsolidateFromFlags(easy, *execute)
+		agent, key, idErr := ResolveAgentIdentity(
+			in.Agent, in.PrivateKeyHex,
+			os.Getenv("AGENT_ADDRESS"), os.Getenv("AGENT_PRIVATE_KEY"),
+		)
+		if idErr != nil {
+			fmt.Fprintf(stderr, "%s\n", sanitizeIdentityErr(idErr))
+			return 2
+		}
+		if vErr := ValidateEasyGates(in.EasyCommon, false); vErr != nil {
+			fmt.Fprintf(stderr, "%s\n", vErr.Error())
+			return 2
+		}
+		if vErr := ValidateEasyConsolidateRequired(in, agent); vErr != nil {
+			fmt.Fprintf(stderr, "%s\n", vErr.Error())
+			return 2
+		}
+		rpcOverlay, err = ParseRPCMap(in.RPCs, in.Testnet)
+		if err != nil {
+			fmt.Fprintf(stderr, "%s\n", sanitizeEasyErr(err))
+			return 2
+		}
+		inv, invErr := loadEasyInventory(in.EasyCommon, agent, rpcOverlay)
+		if invErr != nil {
+			fmt.Fprintf(stderr, "%s\n", sanitizeEasyErr(invErr))
+			return 1
+		}
+		req, err = BuildConsolidateRequestFromEasy(in, inv)
+		if err != nil {
+			fmt.Fprintf(stderr, "%s\n", sanitizeEasyErr(err))
+			return 2
+		}
+		keyHex = key
+	default:
+		raw, rerr := readInput(*file, stdin)
+		if rerr != nil {
+			fmt.Fprintf(stderr, "read input: %v\n", rerr)
+			return 1
+		}
+		if err := json.Unmarshal(raw, &req); err != nil {
+			fmt.Fprintf(stderr, "invalid JSON body\n")
+			return 1
+		}
+		if *execute {
+			req.Execute = true
+		}
+		_, keyHex, _ = ResolveAgentIdentity(
+			*easy.agent, *easy.privateKey,
+			os.Getenv("AGENT_ADDRESS"), os.Getenv("AGENT_PRIVATE_KEY"),
+		)
+		rpcOverlay, _ = ParseRPCMap(sliceOf(easy.rpcs), !*easy.mainnet)
 	}
-	if *execute {
-		req.Execute = true
-	}
-	ex, code := resolveExecutor(req.Execute, stdout, stderr)
+
+	ex, code := resolveExecutor(req.Execute, execenv.Options{
+		PrivateKeyHex: keyHex,
+		RPCs:          rpcOverlay,
+	}, stdout, stderr)
 	if code != 0 {
 		return code
 	}
 	resp, outcome := planio.RunConsolidate(context.Background(), ex, req)
 	return writePlanResp(stdout, stderr, resp, outcome)
+}
+
+func sliceOf(s *stringList) []string {
+	if s == nil {
+		return nil
+	}
+	return append([]string(nil), (*s)...)
+}
+
+// easyFlagHolders holds pointers registered on a FlagSet for plan/consolidate.
+type easyFlagHolders struct {
+	dest, sources, amount, amountAtomic, payTo stringPtr
+	gatewayBalance, agent, privateKey          stringPtr
+	mainnet, live                              *bool
+	balances, rpcs                             *stringList
+}
+
+type stringPtr = *string
+
+func addEasyFlags(fs *flag.FlagSet) easyFlagHolders {
+	var bals, rpcs stringList
+	h := easyFlagHolders{
+		dest:           fs.String("dest", "", "destination chain ref (domain|name|CAIP-2)"),
+		sources:        fs.String("sources", "", "comma-separated source chain refs"),
+		amount:         fs.String("amount", "", "human USDC amount (plan)"),
+		amountAtomic:   fs.String("amount-atomic", "", "atomic USDC amount (plan; XOR --amount)"),
+		payTo:          fs.String("pay-to", "", "merchant pay_to claim (plan)"),
+		gatewayBalance: fs.String("gateway-balance", "", "asserted circle_gateway human USDC"),
+		agent:          fs.String("agent", "", "agent wallet address"),
+		privateKey:     fs.String("private-key", "", "hex ECDSA key (prefer AGENT_PRIVATE_KEY env)"),
+		mainnet:        fs.Bool("mainnet", false, "resolve domain ids as mainnet (default testnet)"),
+		live:           fs.Bool("live", false, "load live inventory (testnet RPCs; no asserted balances)"),
+		balances:       &bals,
+		rpcs:           &rpcs,
+	}
+	fs.Var(&bals, "balance", "asserted native balance ref=humanUSDC (repeatable)")
+	fs.Var(&rpcs, "rpc", "RPC override ref=url (repeatable)")
+	return h
+}
+
+func easyPlanFromFlags(h easyFlagHolders, execute bool) EasyPlanInput {
+	return EasyPlanInput{
+		EasyCommon:   easyCommonFromFlags(h, execute),
+		PayTo:        *h.payTo,
+		Amount:       *h.amount,
+		AmountAtomic: *h.amountAtomic,
+	}
+}
+
+func easyConsolidateFromFlags(h easyFlagHolders, execute bool) EasyConsolidateInput {
+	return EasyConsolidateInput{EasyCommon: easyCommonFromFlags(h, execute)}
+}
+
+func easyCommonFromFlags(h easyFlagHolders, execute bool) EasyCommon {
+	return EasyCommon{
+		Agent:          *h.agent,
+		PrivateKeyHex:  *h.privateKey,
+		Testnet:        !*h.mainnet,
+		Sources:        *h.sources,
+		Dest:           *h.dest,
+		Balances:       append([]string(nil), *h.balances...),
+		GatewayBalance: *h.gatewayBalance,
+		Live:           *h.live,
+		RPCs:           append([]string(nil), *h.rpcs...),
+		Execute:        execute,
+	}
+}
+
+func loadEasyInventory(common EasyCommon, agent string, rpcOverlay map[string]string) (types.Inventory, error) {
+	if common.Live {
+		return loadLiveInventory(agent, rpcOverlay)
+	}
+	return BuildAssertedInventory(agent, common.Balances, common.GatewayBalance, common.Testnet)
+}
+
+func loadLiveInventory(agent string, rpcOverlay map[string]string) (types.Inventory, error) {
+	base, err := rpcenv.LoadFromEnv()
+	if err != nil {
+		return types.Inventory{}, fmt.Errorf("inventory: RPC env invalid")
+	}
+	if base == nil {
+		base = map[string]string{}
+	}
+	for k, v := range rpcOverlay {
+		base[k] = v
+	}
+	// Prefer testnet executable corridors for live MVP inventory.
+	rpcs := make(map[string]string, len(base))
+	for caip, url := range base {
+		if liquidity.IsTestnetExecutableChain(caip) {
+			rpcs[caip] = url
+		}
+	}
+	if len(rpcs) == 0 {
+		return types.Inventory{}, fmt.Errorf("inventory: RPC map required for --live")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	gw := strings.TrimSpace(os.Getenv("GATEWAY_API_BASE"))
+	inv, err := inventory.Load(ctx, inventory.Config{
+		AgentAddress: agent,
+		RPCs:         rpcs,
+		GatewayAPI:   gw,
+	})
+	if err != nil {
+		// Sanitized fixed message — no RPC / balance / address details.
+		return types.Inventory{}, fmt.Errorf("inventory load failed")
+	}
+	return liquidity.InventoryToWire(inv), nil
+}
+
+func sanitizeIdentityErr(err error) string {
+	if err == nil {
+		return "identity error"
+	}
+	// liqerr messages are already fixed; never pass raw crypto errors through.
+	msg := err.Error()
+	if strings.Contains(strings.ToLower(msg), "private key") && strings.Contains(msg, "0x") {
+		return "agent: private key invalid"
+	}
+	return msg
+}
+
+func sanitizeEasyErr(err error) string {
+	if err == nil {
+		return "invalid easy flags"
+	}
+	return err.Error()
 }
 
 func runPaymentFundingCmd(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
@@ -163,7 +419,7 @@ func runPaymentFundingCmd(args []string, stdin io.Reader, stdout, stderr io.Writ
 	if *execute {
 		req.Execute = true
 	}
-	ex, code := resolveExecutor(req.Execute, stdout, stderr)
+	ex, code := resolveExecutor(req.Execute, execenv.Options{}, stdout, stderr)
 	if code != 0 {
 		return code
 	}
@@ -261,11 +517,12 @@ func addSharedFlags(fs *flag.FlagSet) (file *string, execute *bool) {
 
 // resolveExecutor: dry always UnconfiguredExecutor; execute uses BuildExecutor (no loopback).
 // On configure failure returns nil executor and exit 1 after writing sanitized JSON to stdout.
-func resolveExecutor(execute bool, stdout, stderr io.Writer) (liquidity.Executor, int) {
+// opts.PrivateKeyHex / opts.RPCs overlay env for both JSON and easy modes.
+func resolveExecutor(execute bool, opts execenv.Options, stdout, stderr io.Writer) (liquidity.Executor, int) {
 	if !execute {
 		return liquidity.UnconfiguredExecutor{}, 0
 	}
-	ex, err := execenv.BuildExecutor(execenv.Options{})
+	ex, err := execenv.BuildExecutor(opts)
 	if err != nil {
 		api := planio.SanitizeAPIError(err)
 		if api == nil {
