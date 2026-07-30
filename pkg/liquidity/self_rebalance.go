@@ -8,8 +8,8 @@ import (
 	liqerr "github.com/kaimo-no/usdc-liquidity-orchestrator/pkg/errors"
 )
 
-// PlanSelfRebalance plans shortfall-only rebalance to land N on dest agent_self (no pay_to/fee).
-// Prefer Gateway rails; uncovered → ActionInsufficient plan (not hard error).
+// PlanSelfRebalance plans Phase B shortfall land N on dest agent_self (no pay_to/fee).
+// Gateway withdraw or CCTP only; never auto-deposits. Uncovered → ActionInsufficient.
 func PlanSelfRebalance(
 	destChainCAIP2 string,
 	amountAtomic decimal.Decimal,
@@ -32,7 +32,6 @@ func PlanSelfRebalance(
 		AmountSource: AmountSourceSelf,
 	}
 	base := dryBase(req, inv)
-	base.selfRebalance = true
 	base.RecipientRole = RecipientRoleAgentSelf
 
 	if hasNativeCover(req, inv) {
@@ -51,27 +50,11 @@ func PlanSelfRebalance(
 		return base, nil
 	}
 
-	gwOK, cctpOK := corridorEligible(req.ChainCAIP2)
-	if o != nil && !o.gatewayAllowed() {
-		gwOK = false
-	}
-	prefer := PreferRailAuto
-	if o != nil && strings.TrimSpace(o.PreferRail) != "" {
-		prefer = strings.ToLower(strings.TrimSpace(o.PreferRail))
-	}
-	sources := sourceAllowlist(o)
-
+	gwOK, cctpOK, prefer, sources := phaseBOptions(req, o)
 	if p, ok, err := tryBridgePlans(req, inv, agent, shortfall, gwOK, cctpOK, prefer, sources, nil, g, base); ok || err != nil {
 		return p, err
 	}
-	if !gwOK && !cctpOK {
-		base.Action = ActionCorridorUnsupported
-		base.Reason = "no circle_gateway/cctp corridor for dest and dest native insufficient"
-		return base, nil
-	}
-	base.Action = ActionInsufficient
-	base.Reason = "insufficient_liquidity: no dest native, circle_gateway, or cross-chain source covers shortfall"
-	return base, nil
+	return phaseBUncovered(base, req, inv, shortfall, sources, gwOK, cctpOK), nil
 }
 
 // validateSelfLand checks dest/amount/agent for self-land plans (no merchant Required).

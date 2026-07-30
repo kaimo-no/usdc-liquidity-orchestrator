@@ -40,7 +40,7 @@ func main() {
 		log.Fatal(err)
 	}
 	if os.Getenv("ENABLE_TESTNET_EXECUTE") == "1" {
-		log.Printf("testnet gateway execute enabled (consolidate + deposit_withdraw; loopback only)")
+		log.Printf("testnet gateway execute enabled (deposit + withdraw; loopback only)")
 	}
 	s := &http.Server{
 		Addr: addr,

@@ -52,16 +52,16 @@ Related private monorepo: `kaimo-no/kaimo-go` (World B commerce router can call 
 - **Wire keys via struct tags** on `pkg/types`. No hand-rolled `MarshalJSON` for agent-facing types.
 - **Typed errors** in `pkg/errors` (`*errors.Error` + stable `Code`). Classify with `errors.As` / `errors.CodeOf`.
 - **Non-custodial prepare:** fund-move step recipients are always `agent_self` / `Inventory.AgentAddress`. Never merchant `pay_to`, never platform MoR wallets.
-- **Empty `pay_to` fail-closed.** Never invent a merchant target.
+- **Empty `pay_to` OK** on Phase B withdraw/cctp (agent_self land). Residual pay_to never fund dest.
 - **Amount override** only when probe amount is missing; cannot change payTo / network / asset.
 - **Dry plan stamps:** `dry_run=true`, `executed=false`, `inventory_asserted=true`, `inventory_unverified=true` until real execute lands.
 - **`UnconfiguredExecutor` never succeeds.** Default `execute=true` returns `liquidity_rail_unavailable` (or `insufficient_liquidity` for shortfall actions).
-- **Optional testnet Gateway execute** (`pkg/execonchain.DepositExecutor`): dual-gated env; consolidate deposits, `deposit_withdraw` (deposit + burn/mint), and withdraw burn/mint; signs **re-derived** deposit `BuildDepositPrepareCalls` only; burn `destinationRecipient` is always agent_self; mainnet RPC keys refused; loopback `LISTEN_ADDR` required for HTTP.
+- **Optional testnet Gateway execute** (`pkg/execonchain.DepositExecutor`): dual-gated env; consolidate/deposit and withdraw burn/mint only (no composite deposit_withdraw); signs **re-derived** deposit `BuildDepositPrepareCalls` only; burn `destinationRecipient` is always agent_self; mainnet RPC keys refused; loopback `LISTEN_ADDR` required for HTTP.
 - **Consolidate:** `PlanConsolidate` / `POST /v1/consolidate` — full-balance Gateway deposits, no pay_to/fee; deposit steps may include advisory unsigned `prepare_calls`.
-- **Guard dual predicates:** withdraw/cctp need merchant `pay_to`; deposit-only may have empty pay_to.
+- **Guard:** all fund plans agent_self-only; empty pay_to OK for withdraw/cctp/deposit.
 - **Rail naming:** `circle_gateway_*` / `cctp_fast` — never bare `gateway` (avoids MoR / HTTP-gateway confusion). Bare inventory location `"gateway"` is ignored as invalid.
 - **Shortfall-only rebalance:** `PlanOrchestration` amount = `required − dest_native`, not full required when dest already holds partial funds.
-- **Scenario full-funding (demo only):** `PlanPaymentFunding` + `internal/scenario` — hard-coded source reals deposit + full withdraw; `real = floor(logical_atomic / USDC_SCALE_FACTOR)`; not exposed on HTTP `/v1/plan`.
+- **Scenario Phase A (demo only):** `PlanPaymentFunding` + `internal/scenario` — hard-coded source reals deposit only; wait finality then Phase B withdraw; `real = floor(logical_atomic / USDC_SCALE_FACTOR)`.
 - **Orchestration options:** optional `target_chain_caip2` (must match required), `source_chain_caip2s` allowlist, `allow_circle_gateway`, `prefer_rail`.
 - **Fee:** optional `fee_bps` + `fee_recipient` — plan.fee envelope only (never a step); settle via x402 after prepare; not a fund-rail destination.
 - **`agent_address == pay_to` refused** on fund-moving plans (anti–confused-deputy).

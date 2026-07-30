@@ -94,8 +94,6 @@ func TestPOSTPaymentFunding_ScenarioDry(t *testing.T) {
 			"amount_atomic":         "40000000",
 			"amount_logical_atomic": "400000000",
 			"scale_factor":          10,
-			"pay_to":                merchantPayTo,
-			"pay_to_role":           "merchant",
 		},
 		"inventory": map[string]any{
 			"agent_address": agentAddr,
@@ -120,11 +118,11 @@ func TestPOSTPaymentFunding_ScenarioDry(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	var resp types.PlanResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, "circle_gateway_deposit_withdraw", resp.Plan.Action)
+	assert.Equal(t, "circle_gateway_deposit", resp.Plan.Action)
 	assert.True(t, resp.Plan.DryRun)
 	assert.False(t, resp.Plan.Executed)
-	assert.Contains(t, resp.Plan.Reason, "scenario full-funding")
-	require.Len(t, resp.Plan.Steps, 3) // 2 deposits + withdraw
+	assert.Contains(t, resp.Plan.Reason, "Phase A")
+	require.Len(t, resp.Plan.Steps, 2) // deposits only
 	assert.Equal(t, "40000000", resp.Plan.Required.AmountAtomic)
 	assert.Equal(t, "400000000", resp.Plan.Required.AmountLogicalAtomic)
 	assert.Equal(t, int64(10), resp.Plan.Required.ScaleFactor)
@@ -178,7 +176,7 @@ func TestPOSTPlan_ExecuteTrue_ErrorPlusPlan(t *testing.T) {
 	require.NotEmpty(t, resp.Plan.Steps)
 }
 
-func TestPOSTPlan_EmptyPayTo_FailClosed(t *testing.T) {
+func TestPOSTPlan_EmptyPayTo_OK(t *testing.T) {
 	mux := httpserver.NewMux()
 	payload := planBody(false, "", true)
 	rec := httptest.NewRecorder()
@@ -186,12 +184,12 @@ func TestPOSTPlan_EmptyPayTo_FailClosed(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	mux.ServeHTTP(rec, req)
 
-	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
 	var resp types.PlanResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	require.NotNil(t, resp.Error)
-	assert.Equal(t, liqerr.CodeInsufficientLiquidity, resp.Error.Code)
-	assert.Empty(t, resp.Plan.Action)
+	require.Nil(t, resp.Error)
+	assert.Equal(t, "circle_gateway_withdraw", resp.Plan.Action)
+	assert.True(t, resp.Plan.DryRun)
 }
 
 func TestPOSTPlan_ArcGatewayWithdraw(t *testing.T) {
@@ -567,15 +565,18 @@ func planBody(execute bool, payTo string, withGateway bool) []byte {
 		"amount_atomic": "20000000",
 		"location":      "native",
 	})
+	req := map[string]string{
+		"chain_caip2":   arcCAIP2,
+		"asset":         arcUSDC,
+		"amount_atomic": "42000000",
+	}
+	if payTo != "" {
+		req["pay_to"] = payTo
+		req["pay_to_role"] = "merchant"
+		req["protocol"] = "x402"
+	}
 	body := map[string]any{
-		"required": map[string]string{
-			"protocol":      "x402",
-			"chain_caip2":   arcCAIP2,
-			"asset":         arcUSDC,
-			"amount_atomic": "42000000",
-			"pay_to":        payTo,
-			"pay_to_role":   "merchant",
-		},
+		"required": req,
 		"inventory": map[string]any{
 			"agent_address": agentAddr,
 			"balances":      balances,

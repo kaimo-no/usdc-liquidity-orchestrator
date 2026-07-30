@@ -9,8 +9,8 @@ Thin HTTP microservice wrapping `pkg/liquidity` (+ optional `pkg/execonchain`).
 | GET | `/` | MVP web UI (Gateway hero, Live/Asserted/Hybrid inventory, scenario / shortfall plan / consolidate / chains) |
 | GET | `/healthz` | `ok` |
 | GET | `/v1/chains` | Registered corridors (CAIP-2, USDC, Gateway domain, `testnet`, `gateway_wallet`) |
-| POST | `/v1/plan` | Shortfall-only `PlanOrchestration`; stamp dry/execute; optional Executor |
-| POST | `/v1/payment-funding` | Scenario full-funding `PlanPaymentFunding` (hard-coded sources + real amounts) |
+| POST | `/v1/plan` | Phase B shortfall land `PlanOrchestration` (no pay_to required); stamp dry/execute |
+| POST | `/v1/payment-funding` | Scenario Phase A deposits `PlanPaymentFunding` (hard-coded sources; no withdraw) |
 | POST | `/v1/consolidate` | Decode `ConsolidateRequest` → deposit plan; stamp dry/execute; optional Executor |
 | POST | `/v1/inventory` | Request-scoped live load (`{"agent_address"}`); bare `Inventory` / bare `APIError`; `Cache-Control: no-store` |
 
@@ -53,7 +53,7 @@ Optional gitignored `.env` is loaded at startup via `internal/envfile` (does not
 | `GATEWAY_API_BASE` | optional Gateway API base for burn/mint transfer |
 | `GATEWAY_MAX_FEE_ATOMIC` | optional burn-intent maxFee |
 
-Else: `UnconfiguredExecutor` (fail-closed). Live actions: consolidate, deposit_withdraw, withdraw. Never log key/agent/balances/calldata/RPC URL.
+Else: `UnconfiguredExecutor` (fail-closed). Live actions: consolidate, deposit, withdraw. Never log key/agent/balances/calldata/RPC URL.
 
 ## Invariants
 

@@ -1,8 +1,8 @@
 // Package types holds agent-facing wire shapes for liquidity plan I/O.
 package types
 
-// Required is the merchant-claim dest-chain need (untrusted pay_to metadata).
-// Agents fund agent_self only during prepare; pay_to is for later merchant settle.
+// Required is the dest-chain land amount (Phase B) or scenario stamp (Phase A).
+// Agents fund agent_self only; residual pay_to is optional claim metadata (never fund dest).
 // amount_atomic is always the real on-chain amount. Optional amount_logical_atomic +
 // scale_factor stamp scenario scale (logical / scale → real).
 type Required struct {

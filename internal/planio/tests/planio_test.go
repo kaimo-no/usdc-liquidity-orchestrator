@@ -120,14 +120,14 @@ func TestRunPlan_Dry(t *testing.T) {
 	assert.Equal(t, "circle_gateway_withdraw", resp.Plan.Action)
 }
 
-func TestRunPlan_EmptyPayTo_FailClosed(t *testing.T) {
+func TestRunPlan_EmptyPayTo_OK(t *testing.T) {
 	req := planRequest(false)
 	req.Required.PayTo = ""
+	req.Required.PayToRole = ""
 	resp, out := planio.RunPlan(context.Background(), nil, req)
-	assert.Equal(t, planio.StampFail, out)
-	require.NotNil(t, resp.Error)
-	assert.Equal(t, liqerr.CodeInsufficientLiquidity, resp.Error.Code)
-	assert.Empty(t, resp.Plan.Action)
+	assert.Equal(t, planio.StampOK, out)
+	assert.Nil(t, resp.Error)
+	assert.Equal(t, "circle_gateway_withdraw", resp.Plan.Action)
 }
 
 func TestRunPlan_ExecuteUnconfigured(t *testing.T) {
@@ -143,7 +143,7 @@ func TestRunPlan_PrePlanSkipsExecute(t *testing.T) {
 	called := false
 	ex := &countingExecutor{fn: func() { called = true }}
 	req := planRequest(true)
-	req.Required.PayTo = ""
+	req.Required.ChainCAIP2 = "" // invalid → pre-plan error before Execute
 	resp, out := planio.RunPlan(context.Background(), ex, req)
 	assert.Equal(t, planio.StampFail, out)
 	assert.False(t, called, "Execute must not run on pre-plan error")
@@ -283,7 +283,7 @@ func TestRunPaymentFunding_Dry(t *testing.T) {
 	}
 	resp, out := planio.RunPaymentFunding(context.Background(), nil, req)
 	assert.Equal(t, planio.StampOK, out)
-	assert.Equal(t, "circle_gateway_deposit_withdraw", resp.Plan.Action)
+	assert.Equal(t, "circle_gateway_deposit", resp.Plan.Action)
 	assert.Equal(t, "400000000", resp.Plan.Required.AmountLogicalAtomic)
 	assert.Equal(t, int64(10), resp.Plan.Required.ScaleFactor)
 }

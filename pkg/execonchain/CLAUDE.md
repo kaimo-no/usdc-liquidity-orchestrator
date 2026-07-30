@@ -8,7 +8,7 @@ Optional **testnet-only** Circle Gateway executor (go-ethereum). Implements `liq
 |---|---|
 | `Config` | PrivateKeyHex, RPCs, Guard, WaitTimeout, Dial, GatewayAPI, HTTPDo, MaxFeeAtomic, transfer retry, SaltFn |
 | `NewDepositExecutor` | Parse key; refuse empty/mainnet RPC keys |
-| `DepositExecutor` | `Execute` for consolidate, deposit_withdraw, withdraw |
+| `DepositExecutor` | `Execute` for consolidate, deposit, withdraw |
 | `ChainClient` | Minimal RPC surface (mockable in tests) |
 
 ## Supported actions
@@ -16,7 +16,6 @@ Optional **testnet-only** Circle Gateway executor (go-ethereum). Implements `liq
 | Action | Flow |
 |---|---|
 | `circle_gateway_consolidate` | Re-derived deposit prepare_calls only |
-| `circle_gateway_deposit_withdraw` | Deposits → EIP-712 burn intent(s) → `POST /v1/transfer` → `gatewayMint` on dest |
 | `circle_gateway_withdraw` | Burn + transfer + mint; empty `from_chain` → allocate from live Gateway `/v1/balances` (multi-domain) |
 
 ## Invariants

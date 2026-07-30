@@ -463,7 +463,7 @@ func maxFeeFromEnv() *big.Int {
 }
 
 // capMaxFee ensures maxFee < burn value (atomic USDC). Default 2.01 USDC fee would
-// reject a 1 USDC source burn (common multi-source deposit_withdraw split).
+// reject a 1 USDC source burn (common multi-domain withdraw split).
 func capMaxFee(maxFee *big.Int, valueAtomic decimal.Decimal) *big.Int {
 	if maxFee == nil || maxFee.Sign() <= 0 {
 		maxFee = big.NewInt(defaultMaxFeeAtomic)
@@ -483,7 +483,7 @@ func capMaxFee(maxFee *big.Int, valueAtomic decimal.Decimal) *big.Int {
 }
 
 // resolveBurnSources fills empty SourceChainCAIP2 by allocating from live Gateway balances.
-// Explicit sources (deposit_withdraw / from_chain set) pass through unchanged.
+// Explicit sources (from_chain set) pass through unchanged.
 func (e *DepositExecutor) resolveBurnSources(ctx context.Context, params []burnMintParams) ([]burnMintParams, error) {
 	if len(params) == 0 {
 		return params, nil

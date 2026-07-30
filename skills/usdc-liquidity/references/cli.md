@@ -11,11 +11,11 @@ Optional gitignored `.env` is loaded at startup (`internal/envfile`).
 
 | Command | Input | Output |
 |---|---|---|
-| `plan` | JSON (`-f`) **or** easy flags | `PlanResponse` (payment shortfall; merchant pay_to) |
-| `consolidate` | JSON **or** easy flags | `PlanResponse` (full native → gateway) |
-| `deposit` | JSON **or** easy flags | `PlanResponse` (fixed-N single-source deposit; CLI-only) |
-| `move` | JSON **or** easy flags | `PlanResponse` (land N on dest agent_self; CLI-only) |
-| `payment-funding` | JSON body | `PlanResponse` |
+| `plan` | JSON (`-f`) **or** easy flags | `PlanResponse` (Phase B shortfall land; no pay_to) |
+| `consolidate` | JSON **or** easy flags | `PlanResponse` (Phase A full native → gateway) |
+| `deposit` | JSON **or** easy flags | `PlanResponse` (Phase A fixed-N single-source deposit) |
+| `move` | JSON **or** easy flags | `PlanResponse` (Phase B land N on dest agent_self) |
+| `payment-funding` | JSON body | `PlanResponse` (Phase A multi-source deposits only) |
 | `chains` | none | `ChainsResponse` |
 | `inventory` | `-agent` or `AGENT_ADDRESS` + RPC env | wire `Inventory` |
 | `demo` | scenario env | multi-plan demo |
@@ -28,10 +28,9 @@ Flag-first path — no JSON file required. **Mutually exclusive with `-f`**.
 Chain refs accept **Gateway domain id**, **registry name**, or **CAIP-2** (`usdc-liq chains` lists them). Domain ids disambiguate via default **testnet** or `--mainnet`.
 
 ```bash
-# Dry asserted inventory (no network)
+# Phase B dry land (asserted inventory; no network)
 usdc-liq plan \
   --agent 0xAgent… \
-  --pay-to 0xMerchant… \
   --dest 26 \
   --amount 42 \
   --sources 6,3 \
@@ -45,7 +44,6 @@ usdc-liq plan \
 # Live inventory (testnet RPCs; not with --balance)
 usdc-liq plan \
   --private-key "$AGENT_PRIVATE_KEY" \
-  --pay-to 0xMerchant… \
   --dest arc-testnet \
   --amount 42 \
   --sources base-sepolia,arbitrum-sepolia \
@@ -56,13 +54,14 @@ usdc-liq plan \
 # Execute still dual-gated (ENABLE_TESTNET_EXECUTE=1 + key + RPCs)
 ENABLE_TESTNET_EXECUTE=1 usdc-liq plan … --live --execute
 
-# Consolidate: full balances → gateway (not fixed amount; use deposit)
+# Phase A consolidate: full balances → gateway (not fixed amount; use deposit)
 usdc-liq consolidate --agent 0x… --balance base-sepolia=10
 
-# Deposit: fixed N on one source (no pay_to)
+# Phase A deposit: fixed N on one source
 usdc-liq deposit --agent 0x… --source base-sepolia --amount 10 --balance base-sepolia=20
+# After deposit execute, wait ~13–19m finality before Phase B withdraw.
 
-# Move: land N on dest agent_self (shortfall-only; no pay_to)
+# Phase B move: land N on dest agent_self (shortfall-only)
 usdc-liq move --agent 0x… --dest arc-testnet --amount 42 --gateway-balance 100
 ```
 

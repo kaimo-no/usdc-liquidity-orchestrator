@@ -8,7 +8,6 @@ import (
 	"math/big"
 	"net/http"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -30,11 +29,10 @@ func fixedSalt() (string, error) {
 	return "0x" + strings.Repeat("ab", 32), nil
 }
 
-func depositWithdrawPlan(t *testing.T, agent string) liquidity.Plan {
+func depositOnlyPlan(t *testing.T, agent string) liquidity.Plan {
 	t.Helper()
 	req := liquidity.Required{
-		Protocol: "x402", ChainCAIP2: baseSepCAIP2, Asset: baseSepUSDC,
-		PayTo:        "0xMerchant000000000000000000000000000001",
+		ChainCAIP2: baseSepCAIP2, Asset: baseSepUSDC,
 		AmountAtomic: decimal.RequireFromString("1000"),
 		AmountSource: liquidity.AmountSourceProbe,
 	}
@@ -51,88 +49,65 @@ func depositWithdrawPlan(t *testing.T, agent string) liquidity.Plan {
 	}}
 	p, err := liquidity.PlanPaymentFunding(req, inv, sources, nil)
 	require.NoError(t, err)
-	require.Equal(t, liquidity.ActionCircleGatewayDepositWithdraw, p.Action)
+	require.Equal(t, liquidity.ActionCircleGatewayDeposit, p.Action)
 	return p
 }
 
-func TestDepositExecutor_DepositWithdraw_HappyPath(t *testing.T) {
+func TestDepositExecutor_DepositOnly_HappyPath(t *testing.T) {
 	_, hex, agent := testKey(t)
 	srcMock := newMock(421614)
-	destMock := newMock(84532)
-	// Use one dial that returns based on chain id verification path:
-	// Dial is per-URL; map distinct URLs.
-	rpcs := map[string]string{
-		arbSepCAIP2:  "http://mock.local/arb",
-		baseSepCAIP2: "http://mock.local/base",
-	}
-	var mu sync.Mutex
-	var transferCalls int
-	var lastBody []byte
-	httpDo := func(req *http.Request) (*http.Response, error) {
-		mu.Lock()
-		transferCalls++
-		mu.Unlock()
-		assert.Equal(t, http.MethodPost, req.Method)
-		assert.True(t, strings.HasSuffix(req.URL.Path, "/v1/transfer"))
-		b, _ := io.ReadAll(req.Body)
-		lastBody = b
-		var items []map[string]any
-		require.NoError(t, json.Unmarshal(b, &items))
-		require.Len(t, items, 1)
-		bi := items[0]["burnIntent"].(map[string]any)
-		spec := bi["spec"].(map[string]any)
-		// destinationRecipient must be agent (bytes32)
-		rec, _ := spec["destinationRecipient"].(string)
-		want := "0x" + strings.Repeat("0", 24) + strings.TrimPrefix(strings.ToLower(agent), "0x")
-		assert.Equal(t, strings.ToLower(want), strings.ToLower(rec))
-		// never pay_to
-		assert.NotContains(t, strings.ToLower(string(b)), "merchant")
-
-		raw, _ := json.Marshal(map[string]string{
-			"attestation": "0x" + strings.Repeat("11", 64),
-			"signature":   "0x" + strings.Repeat("22", 65),
-		})
-		return &http.Response{
-			StatusCode: 200,
-			Body:       io.NopCloser(bytes.NewReader(raw)),
-			Header:     make(http.Header),
-		}, nil
-	}
-	dial := func(ctx context.Context, url string) (execonchain.ChainClient, error) {
-		switch {
-		case strings.Contains(url, "arb"):
-			return srcMock, nil
-		case strings.Contains(url, "base"):
-			return destMock, nil
-		default:
-			return nil, assert.AnError
-		}
-	}
+	rpcs := map[string]string{arbSepCAIP2: "http://mock.local/arb"}
 	ex, err := execonchain.NewDepositExecutor(execonchain.Config{
-		PrivateKeyHex:      hex,
-		RPCs:               rpcs,
-		Dial:               dial,
-		HTTPDo:             httpDo,
-		GatewayAPI:         "https://gateway-api-testnet.circle.com",
-		WaitTimeout:        time.Second,
-		TransferRetries:    1,
-		TransferRetryDelay: time.Millisecond,
-		SaltFn:             fixedSalt,
+		PrivateKeyHex: hex,
+		RPCs:          rpcs,
+		Dial:          dialMock(srcMock),
+		HTTPDo: func(req *http.Request) (*http.Response, error) {
+			t.Fatal("transfer must not run for deposit-only")
+			return nil, nil
+		},
+		WaitTimeout: time.Second,
+		SaltFn:      fixedSalt,
 	})
 	require.NoError(t, err)
 
-	plan := depositWithdrawPlan(t, agent)
+	plan := depositOnlyPlan(t, agent)
 	rcpt, err := ex.Execute(context.Background(), plan)
 	require.NoError(t, err)
-	// 2 deposit txs (approve+deposit) + 1 mint
-	require.Len(t, rcpt.TxHashes, 3)
+	// approve + deposit
+	require.Len(t, rcpt.TxHashes, 2)
 	assert.Equal(t, 2, srcMock.sends)
-	assert.Equal(t, 1, destMock.sends)
-	assert.Equal(t, 1, transferCalls)
-	require.NotEmpty(t, lastBody)
-	// mint goes to Gateway Minter
-	require.NotEmpty(t, destMock.sent)
-	assert.True(t, strings.EqualFold(destMock.sent[0].To().Hex(), liquidity.GatewayMinterTestnet))
+}
+
+func TestDepositExecutor_RefuseCompositeDepositWithdraw(t *testing.T) {
+	_, hex, agent := testKey(t)
+	mock := newMock(84532)
+	ex, err := execonchain.NewDepositExecutor(execonchain.Config{
+		PrivateKeyHex: hex,
+		RPCs:          map[string]string{baseSepCAIP2: "http://mock.local", arbSepCAIP2: "http://mock.local/arb"},
+		Dial:          dialMock(mock),
+	})
+	require.NoError(t, err)
+	// Crafted composite plan (planner never emits this action).
+	p := liquidity.Plan{
+		Action: "circle_gateway_deposit_withdraw",
+		Steps: []liquidity.PlanStep{
+			{
+				Kind: liquidity.StepKindCircleGatewayDeposit, FromChainCAIP2: arbSepCAIP2,
+				Asset: arbSepUSDC, AmountAtomic: decimal.RequireFromString("1000"),
+				Recipient: agent, RecipientRole: liquidity.RecipientRoleAgentSelf,
+			},
+			{
+				Kind: liquidity.StepKindCircleGatewayWithdraw, ToChainCAIP2: baseSepCAIP2,
+				Asset: baseSepUSDC, AmountAtomic: decimal.RequireFromString("1000"),
+				Recipient: agent, RecipientRole: liquidity.RecipientRoleAgentSelf,
+			},
+		},
+	}
+	p.BindAgent(agent)
+	_, err = ex.Execute(context.Background(), p)
+	require.Error(t, err)
+	assert.Equal(t, liqerr.CodeLiquidityRailUnavailable, liqerr.CodeOf(err))
+	assert.Zero(t, mock.sends)
 }
 
 func TestDepositExecutor_DestinationRecipientNotAgentRefused(t *testing.T) {
@@ -480,7 +455,7 @@ func TestDepositExecutor_MainnetStillRefused(t *testing.T) {
 	assert.Equal(t, liqerr.CodeLiquidityRailUnavailable, liqerr.CodeOf(err))
 }
 
-func TestDepositExecutor_DepositWithdraw_PrepareMismatch(t *testing.T) {
+func TestDepositExecutor_Deposit_PrepareMismatch(t *testing.T) {
 	_, hex, agent := testKey(t)
 	srcMock := newMock(421614)
 	destMock := newMock(84532)
@@ -502,7 +477,7 @@ func TestDepositExecutor_DepositWithdraw_PrepareMismatch(t *testing.T) {
 		TransferRetries: 1,
 	})
 	require.NoError(t, err)
-	plan := depositWithdrawPlan(t, agent)
+	plan := depositOnlyPlan(t, agent)
 	require.NotEmpty(t, plan.Steps[0].PrepareCalls)
 	plan.Steps[0].PrepareCalls[0].Data = "0xdeadbeef"
 	_, err = ex.Execute(context.Background(), plan)

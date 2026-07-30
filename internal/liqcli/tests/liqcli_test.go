@@ -237,7 +237,6 @@ func TestDetectPlanMode(t *testing.T) {
 		_ = fs.String("f", "-", "")
 		_ = fs.String("dest", "", "")
 		_ = fs.String("amount", "", "")
-		_ = fs.String("pay-to", "", "")
 		_ = fs.Bool("live", false, "")
 		_ = fs.Bool("execute", false, "")
 		_ = fs.String("agent", "", "")
@@ -251,7 +250,7 @@ func TestDetectPlanMode(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, liqcli.ModeJSON, mode)
 
-	fs, err = mk("--dest", "26", "--amount", "1", "--pay-to", "0x1")
+	fs, err = mk("--dest", "26", "--amount", "1")
 	require.NoError(t, err)
 	mode, err = liqcli.DetectPlanMode(fs)
 	require.NoError(t, err)
@@ -306,13 +305,11 @@ func TestResolveAgentIdentity(t *testing.T) {
 
 func TestMain_EasyPlanDry(t *testing.T) {
 	agent := "0x" + strings.Repeat("a1", 20)
-	merchant := "0x" + strings.Repeat("b2", 20)
 	var stdout, stderr bytes.Buffer
 	// Empty stdin must not hang — easy mode does not read body.
 	code := liqcli.Main([]string{
 		"plan",
 		"--agent", agent,
-		"--pay-to", merchant,
 		"--dest", "arc-testnet",
 		"--amount", "42",
 		"--sources", "base-sepolia",
@@ -330,26 +327,22 @@ func TestMain_EasyPlanDry(t *testing.T) {
 	assert.NotContains(t, resp.Plan.Action, "payment")
 	require.NotEmpty(t, resp.Plan.Steps)
 	assert.Equal(t, "agent_self", resp.Plan.Steps[0].RecipientRole)
-	// shortfall path: amount needed 42e6, dest native 0 → withdraw/deposit path with gateway 100
-	assert.Contains(t, []string{
-		"circle_gateway_withdraw",
-		"circle_gateway_deposit_withdraw",
-	}, resp.Plan.Action)
+	// Phase B: gateway balance covers → withdraw only
+	assert.Equal(t, "circle_gateway_withdraw", resp.Plan.Action)
 	require.NotNil(t, resp.Plan.Required)
 	assert.Equal(t, "42000000", resp.Plan.Required.AmountAtomic)
 }
 
 func TestMain_EasyPlanIncomplete_NoStdinHang(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	// Missing pay-to → exit 2; empty stdin not consumed for hang.
+	// Missing amount → exit 2; empty stdin not consumed for hang.
 	code := liqcli.Main([]string{
 		"plan",
 		"--agent", "0x" + strings.Repeat("11", 20),
 		"--dest", "26",
-		"--amount", "1",
 	}, strings.NewReader(""), &stdout, &stderr)
 	assert.Equal(t, 2, code)
-	assert.Contains(t, stderr.String(), "pay-to")
+	assert.Contains(t, stderr.String(), "amount")
 }
 
 func TestMain_UsageListsDepositMove(t *testing.T) {
@@ -358,8 +351,9 @@ func TestMain_UsageListsDepositMove(t *testing.T) {
 	assert.Equal(t, 0, code)
 	assert.Contains(t, stderr.String(), "deposit")
 	assert.Contains(t, stderr.String(), "move")
-	assert.Contains(t, stderr.String(), "payment shortfall")
-	assert.Contains(t, stderr.String(), "use deposit")
+	assert.Contains(t, stderr.String(), "Phase A")
+	assert.Contains(t, stderr.String(), "Phase B")
+	assert.Contains(t, stderr.String(), "13–19m")
 }
 
 func TestMain_EasyDepositDry(t *testing.T) {
@@ -508,7 +502,6 @@ func TestMain_EasyExclusiveWithFile(t *testing.T) {
 		"plan",
 		"--dest", "26",
 		"--amount", "1",
-		"--pay-to", "0x" + strings.Repeat("33", 20),
 		"--agent", "0x" + strings.Repeat("11", 20),
 		"-f", "examples/plan.json",
 	}, strings.NewReader(""), &stdout, &stderr)
@@ -521,7 +514,6 @@ func TestMain_EasyLivePlusBalance_Refuse(t *testing.T) {
 	code := liqcli.Main([]string{
 		"plan",
 		"--agent", "0x" + strings.Repeat("11", 20),
-		"--pay-to", "0x" + strings.Repeat("22", 20),
 		"--dest", "26",
 		"--amount", "1",
 		"--balance", "6=10",
@@ -536,7 +528,6 @@ func TestMain_EasyMainnetLive_Refuse(t *testing.T) {
 	code := liqcli.Main([]string{
 		"plan",
 		"--agent", "0x" + strings.Repeat("11", 20),
-		"--pay-to", "0x" + strings.Repeat("22", 20),
 		"--dest", "6",
 		"--amount", "1",
 		"--mainnet",
@@ -546,22 +537,11 @@ func TestMain_EasyMainnetLive_Refuse(t *testing.T) {
 	assert.Contains(t, stderr.String(), "mainnet")
 }
 
-func TestMain_EasyAgentEqualsPayTo(t *testing.T) {
-	same := "0x" + strings.Repeat("ab", 20)
+func TestMain_EasyAgentNoPayToFlag(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	code := liqcli.Main([]string{
-		"plan",
-		"--agent", same,
-		"--pay-to", same,
-		"--dest", "26",
-		"--amount", "42",
-		"--gateway-balance", "100",
-	}, strings.NewReader(""), &stdout, &stderr)
-	assert.Equal(t, 1, code)
-	var resp types.PlanResponse
-	require.NoError(t, json.Unmarshal(stdout.Bytes(), &resp))
-	require.NotNil(t, resp.Error)
-	assert.Equal(t, liqerr.CodeInvalidQuery, resp.Error.Code)
+	code := liqcli.Main([]string{"help"}, strings.NewReader(""), &stdout, &stderr)
+	assert.Equal(t, 0, code)
+	assert.NotContains(t, stderr.String(), "pay-to")
 }
 
 func TestMain_EasyLiveWithoutRPC_NoNetwork(t *testing.T) {
@@ -573,7 +553,6 @@ func TestMain_EasyLiveWithoutRPC_NoNetwork(t *testing.T) {
 	code := liqcli.Main([]string{
 		"plan",
 		"--agent", "0x" + strings.Repeat("11", 20),
-		"--pay-to", "0x" + strings.Repeat("22", 20),
 		"--dest", "26",
 		"--amount", "1",
 		"--live",
@@ -598,7 +577,6 @@ func TestMain_EasyLiveWithoutExecute_StillDry(t *testing.T) {
 			Live:    true, // Live true but Execute false
 			Execute: false,
 		},
-		PayTo:  "0x" + strings.Repeat("d4", 20),
 		Amount: "42",
 	}, inv)
 	require.NoError(t, err)
@@ -612,7 +590,6 @@ func TestMain_EasyPrivateKeyNeverLogged(t *testing.T) {
 	code := liqcli.Main([]string{
 		"plan",
 		"--private-key", priv,
-		"--pay-to", "0x" + strings.Repeat("22", 20),
 		"--amount", "1",
 	}, strings.NewReader(""), &stdout, &stderr)
 	assert.Equal(t, 2, code)

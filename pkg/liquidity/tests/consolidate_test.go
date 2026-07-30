@@ -161,28 +161,18 @@ func TestGuard_DepositOnly_EmptyPayTo_OK(t *testing.T) {
 	require.NoError(t, g.CheckPlan(p))
 }
 
-func TestGuard_DepositPlusWithdraw_EmptyPayTo_Refuse(t *testing.T) {
+func TestGuard_WithdrawEmptyPayTo_OK(t *testing.T) {
 	g := &liquidity.Guard{}
 	p := liquidity.Plan{
-		Action: liquidity.ActionCircleGatewayDepositWithdraw,
-		Steps: []liquidity.PlanStep{
-			{
-				Kind: liquidity.StepKindCircleGatewayDeposit, FromChainCAIP2: arbCAIP2,
-				Recipient: agentAddr, RecipientRole: liquidity.RecipientRoleAgentSelf,
-				AmountAtomic: decimal.RequireFromString("1"), Asset: arbUSDC,
-			},
-			{
-				Kind: liquidity.StepKindCircleGatewayWithdraw, ToChainCAIP2: baseCAIP2,
-				Recipient: agentAddr, RecipientRole: liquidity.RecipientRoleAgentSelf,
-				AmountAtomic: decimal.RequireFromString("1"), Asset: baseUSDC,
-			},
-		},
+		Action: liquidity.ActionCircleGatewayWithdraw,
+		Steps: []liquidity.PlanStep{{
+			Kind: liquidity.StepKindCircleGatewayWithdraw, ToChainCAIP2: baseCAIP2,
+			Recipient: agentAddr, RecipientRole: liquidity.RecipientRoleAgentSelf,
+			AmountAtomic: decimal.RequireFromString("1"), Asset: baseUSDC,
+		}},
 	}
 	p.BindAgent(agentAddr)
-	err := g.CheckPlan(p)
-	require.Error(t, err)
-	assert.Equal(t, liqerr.CodeInsufficientLiquidity, liqerr.CodeOf(err))
-	assert.Contains(t, err.Error(), "pay_to")
+	require.NoError(t, g.CheckPlan(p))
 }
 
 func TestUnconfiguredExecutor_Consolidate_RailUnavailable(t *testing.T) {

@@ -63,7 +63,7 @@ go run ./cmd/usdc-liq chains
 
 # Easy mode (no JSON; domain ids + human USDC; XOR with -f)
 go run ./cmd/usdc-liq plan \
-  --agent 0xAgent… --pay-to 0xMerchant… \
+  --agent 0xAgent…  \
   --dest 26 --amount 42 --sources 6 \
   --balance 6=100 --gateway-balance 80
 ```
@@ -98,7 +98,7 @@ cmd/demo               thin wrapper → internal/demorun
 skills/usdc-liquidity  product skill (CLI + HTTP + invariants)
 ```
 
-Plan preference: `noop` → `circle_gateway_withdraw` → `circle_gateway_deposit_withdraw` → `cctp_fast` → `insufficient` / `corridor_unsupported` (override with `orchestration.prefer_rail`).
+Plan preference: `noop` → `circle_gateway_withdraw` → `circle_gateway_deposit (Phase A) / circle_gateway_withdraw (Phase B)` → `cctp_fast` → `insufficient` / `corridor_unsupported` (override with `orchestration.prefer_rail`).
 
 `POST /v1/consolidate` plans action `circle_gateway_consolidate` (full native USDC → Gateway Wallet deposits; no merchant claim). Deposit steps may include advisory unsigned `prepare_calls` (approve + deposit). With dual-gated env, `execute=true` may broadcast re-derived deposit txs on **testnets only** (see [`OPS.md`](./OPS.md)).
 
@@ -107,7 +107,7 @@ Optional `fee_bps` + `fee_recipient` attach a kaimo orchestration fee settled **
 ### Hard invariants
 
 1. Fund-move recipient = **agent_self** only  
-2. Empty `pay_to` → fail closed on withdraw/cctp (deposit-only consolidate may omit pay_to)  
+2. Empty `pay_to` OK on Phase B withdraw/cctp (agent_self land); residual pay_to never fund dest  
 3. Amount override only when probe amount missing  
 4. Dry plan: `executed=false`, `dry_run=true`  
 5. Default execute fails closed; live path is testnet deposit-only, signs re-derived calls only  

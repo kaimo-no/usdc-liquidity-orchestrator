@@ -32,7 +32,6 @@ Supported actions:
 | Action | Behaviour |
 |---|---|
 | `circle_gateway_consolidate` | Deposit steps only; signs **re-derived** prepare calls |
-| `circle_gateway_deposit_withdraw` | Deposits, then EIP-712 burn intents + `POST /v1/transfer` + `gatewayMint` on dest |
 | `circle_gateway_withdraw` | Burn intent + transfer + mint (no deposits) |
 
 Burn/mint `destinationRecipient` is always the agent (never merchant `pay_to`). Partial failures return hashes + `executed=false`. After deposits, transfer API is retried (default 5×); Base/Arb need ~13–19m confirmations before Gateway balances/attestations (Circle docs). Withdraw-only with empty `from_chain` allocates burns from live `POST /v1/balances`, skipping domains at/below maxFee floor (~2.01 USDC default).

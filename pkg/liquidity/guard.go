@@ -9,7 +9,7 @@ import (
 )
 
 // Guard governs client-side liquidity prepare/execute only.
-// Prepare never transfers to merchant pay_to.
+// Prepare never transfers to merchant pay_to (residual claim metadata only).
 type Guard struct {
 	MaxAmountAtomic       decimal.Decimal
 	AllowedAgentAddresses []string
@@ -62,23 +62,15 @@ func (g *Guard) CheckAgent(inv Inventory) error {
 // CheckPlan refuses non-agent_self fund steps and pay_to-as-recipient.
 // Nil receiver is safe (used by bare UnconfiguredExecutor{}).
 //
-// Dual predicates:
-//   - requiresMerchantClaim: withdraw / cctp burn+mint need non-empty pay_to (unless selfRebalance)
-//   - fund-moving (incl. deposit): agent_self, recipient==agent, MaxAmountAtomic, kind allowlist
-//
-// Deposit-only plans may have empty pay_to; deposit+withdraw with empty pay_to is refused
-// unless Plan.selfRebalance (set only by PlanSelfRebalance).
+// All fund-moving plans (deposit, withdraw, cctp) are agent_self-only.
+// Empty pay_to is OK; residual non-empty pay_to is never a fund destination.
 func (g *Guard) CheckPlan(p Plan) error {
-	if p.selfRebalance && strings.TrimSpace(p.Required.PayTo) != "" {
-		return liqerr.New(liqerr.CodeInvalidQuery,
-			"liquidity: self-rebalance refuses non-empty pay_to (agent_self land only)")
-	}
 	hasFund, err := planHasFundSteps(p.Steps)
 	if err != nil {
 		return err
 	}
 	agent := strings.TrimSpace(p.agentAddress)
-	if err := checkFundPlanIdentity(hasFund, requiresMerchantClaim(p), p.Required, agent); err != nil {
+	if err := checkFundPlanIdentity(hasFund, p.Required, agent); err != nil {
 		return err
 	}
 	for _, s := range p.Steps {
@@ -90,20 +82,6 @@ func (g *Guard) CheckPlan(p Plan) error {
 		return err
 	}
 	return checkMaxAmounts(g, p)
-}
-
-func requiresMerchantClaim(p Plan) bool {
-	if p.selfRebalance {
-		return false
-	}
-	for _, s := range p.Steps {
-		k := strings.ToLower(strings.TrimSpace(s.Kind))
-		switch k {
-		case StepKindCircleGatewayWithdraw, StepKindCCTPBurn, StepKindCCTPMint:
-			return true
-		}
-	}
-	return false
 }
 
 func planHasFundSteps(steps []PlanStep) (bool, error) {
@@ -120,14 +98,15 @@ func planHasFundSteps(steps []PlanStep) (bool, error) {
 	return hasFund, nil
 }
 
-func checkFundPlanIdentity(hasFund, needsMerchantClaim bool, req Required, agent string) error {
-	if needsMerchantClaim && strings.TrimSpace(req.PayTo) == "" {
-		return liqerr.New(liqerr.CodeInsufficientLiquidity,
-			"liquidity: empty pay_to — refuse plan")
-	}
+func checkFundPlanIdentity(hasFund bool, req Required, agent string) error {
 	if hasFund && agent == "" {
 		return liqerr.New(liqerr.CodeInvalidQuery,
 			"liquidity: agent_address required for fund-moving plan (refuse bootstrap from steps)")
+	}
+	if payTo := strings.TrimSpace(req.PayTo); payTo != "" && agent != "" &&
+		addrEqual(agent, payTo, req.ChainCAIP2) {
+		return liqerr.New(liqerr.CodeInvalidQuery,
+			"liquidity: agent_address must not equal pay_to (anti–confused-deputy)")
 	}
 	return nil
 }
@@ -205,7 +184,7 @@ func checkFundStep(s PlanStep, req Required, agent string, g *Guard) error {
 		return liqerr.New(liqerr.CodeInvalidQuery,
 			"liquidity: fund-moving step missing recipient (agent_self required)")
 	}
-	// Always refuse merchant as fund dest when pay_to is present.
+	// Always refuse residual merchant pay_to as fund dest when present.
 	chain := req.ChainCAIP2
 	if chain == "" {
 		chain = s.FromChainCAIP2

@@ -47,7 +47,7 @@ func TestPlanSelfRebalance_GatewayWithdraw(t *testing.T) {
 	assert.Nil(t, p.Fee)
 }
 
-func TestPlanSelfRebalance_DepositWithdraw_ShortfallOnly(t *testing.T) {
+func TestPlanSelfRebalance_OtherNative_CCTP_ShortfallOnly(t *testing.T) {
 	inv := liquidity.Inventory{
 		AgentAddress: agentAddr,
 		Balances: []liquidity.Balance{
@@ -57,11 +57,12 @@ func TestPlanSelfRebalance_DepositWithdraw_ShortfallOnly(t *testing.T) {
 	}
 	p, err := liquidity.PlanSelfRebalance(baseCAIP2, decimal.RequireFromString("1000000"), inv, nil, nil)
 	require.NoError(t, err)
-	assert.Equal(t, liquidity.ActionCircleGatewayDepositWithdraw, p.Action)
+	assert.Equal(t, liquidity.ActionCCTPFast, p.Action)
 	require.Len(t, p.Steps, 2)
 	// shortfall = 1000000 - 200000 = 800000
 	assert.True(t, p.Steps[0].AmountAtomic.Equal(decimal.RequireFromString("800000")))
 	assert.True(t, p.Steps[1].AmountAtomic.Equal(decimal.RequireFromString("800000")))
+	assert.Equal(t, liquidity.StepKindCCTPBurn, p.Steps[0].Kind)
 	for _, s := range p.Steps {
 		assert.Equal(t, agentAddr, s.Recipient)
 		assert.Equal(t, liquidity.RecipientRoleAgentSelf, s.RecipientRole)
@@ -95,8 +96,9 @@ func TestPlanSelfRebalance_SourcesAllowlist(t *testing.T) {
 	orch := &liquidity.Orchestration{SourceChainCAIP2s: []string{baseSepCAIP2}}
 	p, err := liquidity.PlanSelfRebalance(arcCAIP2, decimal.RequireFromString("1000000"), inv, orch, nil)
 	require.NoError(t, err)
-	assert.Equal(t, liquidity.ActionCircleGatewayDepositWithdraw, p.Action)
+	assert.Equal(t, liquidity.ActionCCTPFast, p.Action)
 	assert.Equal(t, baseSepCAIP2, p.Steps[0].FromChainCAIP2)
+	assert.Equal(t, liquidity.StepKindCCTPBurn, p.Steps[0].Kind)
 }
 
 func TestPlanSelfRebalance_InsufficientPlan(t *testing.T) {
@@ -160,30 +162,19 @@ func TestGuard_SelfRebalance_WithdrawEmptyPayTo_OK(t *testing.T) {
 	require.NoError(t, (&liquidity.Guard{}).CheckPlan(p))
 }
 
-func TestGuard_SelfRebalance_WithPayTo_Refuse(t *testing.T) {
-	// Crafted plan: self-rebalance flag cannot be set outside package; exercise via
-	// PlanSelfRebalance then CheckPlan is OK. Merchant pay_to smuggle is internal-only.
-	// Verify non-self deposit+withdraw empty pay_to still refuse (unchanged).
+func TestGuard_WithdrawAndDepositSteps_EmptyPayTo_OK(t *testing.T) {
+	// Guard allows empty pay_to for agent_self fund steps (Phase split is planner/executor).
 	g := &liquidity.Guard{}
 	p := liquidity.Plan{
-		Action: liquidity.ActionCircleGatewayDepositWithdraw,
-		Steps: []liquidity.PlanStep{
-			{
-				Kind: liquidity.StepKindCircleGatewayDeposit, FromChainCAIP2: arbCAIP2,
-				Recipient: agentAddr, RecipientRole: liquidity.RecipientRoleAgentSelf,
-				AmountAtomic: decimal.RequireFromString("1"), Asset: arbUSDC,
-			},
-			{
-				Kind: liquidity.StepKindCircleGatewayWithdraw, ToChainCAIP2: baseCAIP2,
-				Recipient: agentAddr, RecipientRole: liquidity.RecipientRoleAgentSelf,
-				AmountAtomic: decimal.RequireFromString("1"), Asset: baseUSDC,
-			},
-		},
+		Action: liquidity.ActionCircleGatewayWithdraw,
+		Steps: []liquidity.PlanStep{{
+			Kind: liquidity.StepKindCircleGatewayWithdraw, ToChainCAIP2: baseCAIP2,
+			Recipient: agentAddr, RecipientRole: liquidity.RecipientRoleAgentSelf,
+			AmountAtomic: decimal.RequireFromString("1"), Asset: baseUSDC,
+		}},
 	}
 	p.BindAgent(agentAddr)
-	err := g.CheckPlan(p)
-	require.Error(t, err)
-	assert.Equal(t, liqerr.CodeInsufficientLiquidity, liqerr.CodeOf(err))
+	require.NoError(t, g.CheckPlan(p))
 }
 
 func TestPlanSelfRebalance_MissingAgentAmount(t *testing.T) {

@@ -6,7 +6,10 @@
 //
 // Rails (naming avoids "gateway" alone to prevent MoR confusion):
 //
-//	circle_gateway_withdraw | circle_gateway_deposit_withdraw | cctp_fast
+//	Phase A: circle_gateway_deposit | circle_gateway_consolidate
+//	Phase B: circle_gateway_withdraw | cctp_fast
+//
+// Never emit deposit+withdraw in one plan (no circle_gateway_deposit_withdraw).
 package liquidity
 
 import (
@@ -22,14 +25,13 @@ import (
 type PlanAction string
 
 const (
-	ActionNoop                         PlanAction = "noop"
-	ActionCircleGatewayWithdraw        PlanAction = "circle_gateway_withdraw"
-	ActionCircleGatewayDepositWithdraw PlanAction = "circle_gateway_deposit_withdraw"
-	ActionCircleGatewayConsolidate     PlanAction = "circle_gateway_consolidate"
-	ActionCircleGatewayDeposit         PlanAction = "circle_gateway_deposit"
-	ActionCCTPFast                     PlanAction = "cctp_fast"
-	ActionInsufficient                 PlanAction = "insufficient"
-	ActionCorridorUnsupported          PlanAction = "corridor_unsupported"
+	ActionNoop                     PlanAction = "noop"
+	ActionCircleGatewayWithdraw    PlanAction = "circle_gateway_withdraw"
+	ActionCircleGatewayConsolidate PlanAction = "circle_gateway_consolidate"
+	ActionCircleGatewayDeposit     PlanAction = "circle_gateway_deposit"
+	ActionCCTPFast                 PlanAction = "cctp_fast"
+	ActionInsufficient             PlanAction = "insufficient"
+	ActionCorridorUnsupported      PlanAction = "corridor_unsupported"
 )
 
 const (
@@ -138,7 +140,6 @@ type Plan struct {
 	DryRun              bool
 	Fee                 *PlanFee
 	agentAddress        string // agent_self binding; never bootstrap from steps in CheckPlan
-	selfRebalance       bool   // set only by PlanSelfRebalance; allows empty-pay_to withdraw/cctp
 }
 
 // BindAgent sets the agent_self identity for CheckPlan / execute.
@@ -155,17 +156,13 @@ func (p Plan) AgentAddress() string {
 	return p.agentAddress
 }
 
-// RequiredFromWire builds Required from merchant-claim wire.
+// RequiredFromWire builds Required from land/claim wire.
+// pay_to is optional residual metadata only (never a fund destination).
 // amountOverride is accepted only when probe amount is empty.
 func RequiredFromWire(lr *types.Required, amountOverride string) (Required, error) {
 	if lr == nil {
-		return Required{}, liqerr.New(liqerr.CodeInsufficientLiquidity,
-			"liquidity: missing required (empty pay_to / no merchant claim)")
-	}
-	payTo := strings.TrimSpace(lr.PayTo)
-	if payTo == "" {
-		return Required{}, liqerr.New(liqerr.CodeInsufficientLiquidity,
-			"liquidity: empty pay_to — refuse plan; never invent merchant recipient")
+		return Required{}, liqerr.New(liqerr.CodeInvalidQuery,
+			"liquidity: missing required (chain_caip2, asset, amount_atomic)")
 	}
 	chain := strings.TrimSpace(lr.ChainCAIP2)
 	asset := strings.TrimSpace(lr.Asset)
@@ -185,7 +182,7 @@ func RequiredFromWire(lr *types.Required, amountOverride string) (Required, erro
 		Protocol:     strings.TrimSpace(lr.Protocol),
 		ChainCAIP2:   chain,
 		Asset:        asset,
-		PayTo:        payTo,
+		PayTo:        strings.TrimSpace(lr.PayTo),
 		AmountAtomic: amount,
 		AmountSource: source,
 	}, nil
@@ -244,7 +241,9 @@ func PlanLiquidity(req Required, inv Inventory, g *Guard) (Plan, error) {
 	return PlanOrchestration(req, inv, nil, nil, g)
 }
 
-// PlanOrchestration plans with optional source/target setup and fee config.
+// PlanOrchestration plans Phase B shortfall land on dest agent_self (optional fee).
+// pay_to is residual metadata only; fund rails always mint/withdraw to agent_self.
+// Never emits deposit steps — deposit first via PlanGatewayDeposit / PlanConsolidate.
 func PlanOrchestration(req Required, inv Inventory, o *Orchestration, fee *FeeConfig, g *Guard) (Plan, error) {
 	if err := validateRequired(req); err != nil {
 		return Plan{}, err
@@ -258,8 +257,13 @@ func PlanOrchestration(req Required, inv Inventory, o *Orchestration, fee *FeeCo
 	if err := g.CheckPrepare(req, inv); err != nil {
 		return Plan{}, err
 	}
+	agent, err := requireAgentSelf(req, inv)
+	if err != nil {
+		return Plan{}, err
+	}
 
 	base := dryBase(req, inv)
+	base.RecipientRole = RecipientRoleAgentSelf
 	if hasNativeCover(req, inv) {
 		base.Action = ActionNoop
 		base.Reason = "dest native balance covers required amount"
@@ -267,12 +271,6 @@ func PlanOrchestration(req Required, inv Inventory, o *Orchestration, fee *FeeCo
 	}
 	if early, ok := unsupportedOrEarly(req, base); ok {
 		return early, nil
-	}
-
-	agent := strings.TrimSpace(inv.AgentAddress)
-	if agent == "" {
-		return Plan{}, liqerr.New(liqerr.CodeInvalidQuery,
-			"liquidity: agent_address required to plan fund movement (agent_self recipient)")
 	}
 
 	// Only move the shortfall (required − dest native). Full required amount would
@@ -284,27 +282,51 @@ func PlanOrchestration(req Required, inv Inventory, o *Orchestration, fee *FeeCo
 		return base, nil
 	}
 
-	gwOK, cctpOK := corridorEligible(req.ChainCAIP2)
-	if o != nil && !o.gatewayAllowed() {
-		gwOK = false
-	}
-	prefer := PreferRailAuto
-	if o != nil && strings.TrimSpace(o.PreferRail) != "" {
-		prefer = strings.ToLower(strings.TrimSpace(o.PreferRail))
-	}
-	sources := sourceAllowlist(o)
-
+	gwOK, cctpOK, prefer, sources := phaseBOptions(req, o)
 	if p, ok, err := tryBridgePlans(req, inv, agent, shortfall, gwOK, cctpOK, prefer, sources, fee, g, base); ok || err != nil {
 		return p, err
 	}
+	return phaseBUncovered(base, req, inv, shortfall, sources, gwOK, cctpOK), nil
+}
+
+func requireAgentSelf(req Required, inv Inventory) (string, error) {
+	agent := strings.TrimSpace(inv.AgentAddress)
+	if agent == "" {
+		return "", liqerr.New(liqerr.CodeInvalidQuery,
+			"liquidity: agent_address required to plan fund movement (agent_self recipient)")
+	}
+	if payTo := strings.TrimSpace(req.PayTo); payTo != "" && addrEqual(agent, payTo, req.ChainCAIP2) {
+		return "", liqerr.New(liqerr.CodeInvalidQuery,
+			"liquidity: agent_address must not equal pay_to (anti–confused-deputy)")
+	}
+	return agent, nil
+}
+
+func phaseBOptions(req Required, o *Orchestration) (gwOK, cctpOK bool, prefer string, sources []string) {
+	gwOK, cctpOK = corridorEligible(req.ChainCAIP2)
+	if o != nil && !o.gatewayAllowed() {
+		gwOK = false
+	}
+	prefer = PreferRailAuto
+	if o != nil && strings.TrimSpace(o.PreferRail) != "" {
+		prefer = strings.ToLower(strings.TrimSpace(o.PreferRail))
+	}
+	return gwOK, cctpOK, prefer, sourceAllowlist(o)
+}
+
+func phaseBUncovered(base Plan, req Required, inv Inventory, shortfall decimal.Decimal, sources []string, gwOK, cctpOK bool) Plan {
 	if !gwOK && !cctpOK {
 		base.Action = ActionCorridorUnsupported
 		base.Reason = "no circle_gateway/cctp corridor for dest and dest native insufficient"
-		return base, nil
+		return base
 	}
 	base.Action = ActionInsufficient
-	base.Reason = "insufficient_liquidity: no dest native, circle_gateway, or cross-chain source covers shortfall"
-	return base, nil
+	if _, hasOther := findOtherNativeSource(req, inv, shortfall, sources); hasOther {
+		base.Reason = insufficientDepositFirstReason
+	} else {
+		base.Reason = "insufficient_liquidity: no dest native, circle_gateway, or cross-chain source covers shortfall"
+	}
+	return base
 }
 
 func (o *Orchestration) gatewayAllowed() bool {
@@ -367,10 +389,6 @@ func validateFeeConfig(fee *FeeConfig) error {
 }
 
 func validateRequired(req Required) error {
-	if strings.TrimSpace(req.PayTo) == "" {
-		return liqerr.New(liqerr.CodeInsufficientLiquidity,
-			"liquidity: empty pay_to — refuse plan")
-	}
 	if strings.TrimSpace(req.ChainCAIP2) == "" || strings.TrimSpace(req.Asset) == "" {
 		return liqerr.New(liqerr.CodeInvalidQuery,
 			"liquidity: chain_caip2 and asset required")
@@ -409,6 +427,10 @@ func unsupportedOrEarly(req Required, base Plan) (Plan, bool) {
 	return base, false
 }
 
+// insufficientDepositFirstReason guides agents when other-chain native exists but Phase B
+// cannot complete without a prior Phase A deposit + Gateway finality wait.
+const insufficientDepositFirstReason = "insufficient_liquidity: no circle_gateway balance or cctp path covers shortfall; deposit native into circle_gateway (Phase A), wait finality (~13-19m), then plan withdraw (Phase B)"
+
 func tryBridgePlans(
 	req Required, inv Inventory, agent string, shortfall decimal.Decimal,
 	gwOK, cctpOK bool, prefer string, sources []string, fee *FeeConfig, g *Guard, base Plan,
@@ -417,6 +439,8 @@ func tryBridgePlans(
 		if !gwOK {
 			return base, false, nil
 		}
+		// Phase B: withdraw only when gateway balance already covers shortfall.
+		// Never auto-insert deposit steps (no deposit_withdraw composite).
 		if locationSumGateway(req, inv).GreaterThanOrEqual(shortfall) {
 			base.Action = ActionCircleGatewayWithdraw
 			base.RecipientRole = RecipientRoleAgentSelf
@@ -425,19 +449,6 @@ func tryBridgePlans(
 				Kind: StepKindCircleGatewayWithdraw, ToChainCAIP2: req.ChainCAIP2, Asset: req.Asset,
 				AmountAtomic: shortfall, Recipient: agent, RecipientRole: RecipientRoleAgentSelf,
 			}}
-			return finalizeFundPlan(base, shortfall, fee, g)
-		}
-		if src, ok := findOtherNativeSource(req, inv, shortfall, sources); ok {
-			srcAsset := stepAssetForChain(src.Asset, src.ChainCAIP2, req.Asset)
-			base.Action = ActionCircleGatewayDepositWithdraw
-			base.RecipientRole = RecipientRoleAgentSelf
-			base.Reason = "deposit source-chain native into circle_gateway then withdraw shortfall to dest agent_self"
-			base.Steps = []PlanStep{
-				{Kind: StepKindCircleGatewayDeposit, FromChainCAIP2: src.ChainCAIP2, Asset: srcAsset,
-					AmountAtomic: shortfall, Recipient: agent, RecipientRole: RecipientRoleAgentSelf},
-				{Kind: StepKindCircleGatewayWithdraw, ToChainCAIP2: req.ChainCAIP2, Asset: req.Asset,
-					AmountAtomic: shortfall, Recipient: agent, RecipientRole: RecipientRoleAgentSelf},
-			}
 			return finalizeFundPlan(base, shortfall, fee, g)
 		}
 		return base, false, nil
@@ -516,7 +527,7 @@ func attachFee(p *Plan, shortfall decimal.Decimal, fee *FeeConfig) {
 
 func isFundMovingAction(a PlanAction) bool {
 	switch a {
-	case ActionCircleGatewayWithdraw, ActionCircleGatewayDepositWithdraw, ActionCCTPFast:
+	case ActionCircleGatewayWithdraw, ActionCircleGatewayDeposit, ActionCircleGatewayConsolidate, ActionCCTPFast:
 		return true
 	default:
 		return false
@@ -721,37 +732,32 @@ func PlanToWire(p Plan) types.Plan {
 		steps = append(steps, stepWire)
 	}
 	var reqWire *types.Required
-	if p.Required.PayTo != "" {
+	if p.Required.ChainCAIP2 != "" || p.Required.AmountAtomic.IsPositive() {
 		src := p.Required.AmountSource
 		if src == "" {
-			src = AmountSourceProbe
+			if p.Required.PayTo != "" {
+				src = AmountSourceProbe
+			} else {
+				src = AmountSourceSelf
+			}
 		}
 		reqWire = &types.Required{
 			Protocol:     p.Required.Protocol,
 			ChainCAIP2:   p.Required.ChainCAIP2,
 			Asset:        p.Required.Asset,
 			AmountAtomic: p.Required.AmountAtomic.String(),
-			PayTo:        p.Required.PayTo,
-			PayToRole:    RecipientRoleMerchant,
 			Source:       src,
+		}
+		// Residual pay_to is claim metadata only (never fund dest); omit when empty.
+		if payTo := strings.TrimSpace(p.Required.PayTo); payTo != "" {
+			reqWire.PayTo = payTo
+			reqWire.PayToRole = RecipientRoleMerchant
 		}
 		if p.Required.AmountLogicalAtomic.IsPositive() {
 			reqWire.AmountLogicalAtomic = p.Required.AmountLogicalAtomic.String()
 		}
 		if p.Required.ScaleFactor > 0 {
 			reqWire.ScaleFactor = p.Required.ScaleFactor
-		}
-	} else if p.selfRebalance {
-		// Land stamp: dest + N without merchant pay_to (omitempty omits empty fields).
-		src := p.Required.AmountSource
-		if src == "" {
-			src = AmountSourceSelf
-		}
-		reqWire = &types.Required{
-			ChainCAIP2:   p.Required.ChainCAIP2,
-			Asset:        p.Required.Asset,
-			AmountAtomic: p.Required.AmountAtomic.String(),
-			Source:       src,
 		}
 	}
 	var feeWire *types.Fee
@@ -766,16 +772,10 @@ func PlanToWire(p Plan) types.Plan {
 			Asset:         p.Fee.Asset,
 		}
 	}
-	// Merchant amount_source, self-rebalance "self", else omit (consolidate/deposit).
+	// Land/plan amount_source; omit for consolidate/deposit with empty Required.
 	amountSrc := ""
-	switch {
-	case p.Required.PayTo != "":
-		amountSrc = p.Required.AmountSource
-		if amountSrc == "" {
-			amountSrc = AmountSourceProbe
-		}
-	case p.selfRebalance:
-		amountSrc = AmountSourceSelf
+	if reqWire != nil {
+		amountSrc = reqWire.Source
 	}
 	return types.Plan{
 		Action:              string(p.Action),

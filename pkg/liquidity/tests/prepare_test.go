@@ -13,12 +13,7 @@ import (
 )
 
 func TestPrepareCalls_DepositGolden(t *testing.T) {
-	// Shortfall deposit on Base Sepolia with known amount → fixed calldata prefix + layout.
-	req := liquidity.Required{
-		Protocol: "x402", ChainCAIP2: arcCAIP2, Asset: arcUSDC,
-		PayTo: merchantPayTo, AmountAtomic: decimal.RequireFromString("1000000"),
-		AmountSource: liquidity.AmountSourceProbe,
-	}
+	// Phase A fixed-N deposit on Base Sepolia with known amount → fixed calldata.
 	inv := liquidity.Inventory{
 		AgentAddress: agentAddr,
 		Balances: []liquidity.Balance{{
@@ -26,14 +21,10 @@ func TestPrepareCalls_DepositGolden(t *testing.T) {
 			AmountAtomic: decimal.RequireFromString("5000000"), Location: liquidity.LocationNative,
 		}},
 	}
-	orch := &liquidity.Orchestration{
-		TargetChainCAIP2:  arcCAIP2,
-		SourceChainCAIP2s: []string{baseSepCAIP2},
-	}
-	p, err := liquidity.PlanOrchestration(req, inv, orch, nil, nil)
+	p, err := liquidity.PlanGatewayDeposit(inv, baseSepCAIP2, decimal.RequireFromString("1000000"), nil, nil)
 	require.NoError(t, err)
-	assert.Equal(t, liquidity.ActionCircleGatewayDepositWithdraw, p.Action)
-	require.Len(t, p.Steps, 2)
+	assert.Equal(t, liquidity.ActionCircleGatewayDeposit, p.Action)
+	require.Len(t, p.Steps, 1)
 	dep := p.Steps[0]
 	assert.Equal(t, liquidity.StepKindCircleGatewayDeposit, dep.Kind)
 	require.Len(t, dep.PrepareCalls, 2)
@@ -52,7 +43,6 @@ func TestPrepareCalls_DepositGolden(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, liquidity.GatewayWalletTestnet, wallet)
 
-	// approve spender = Gateway Wallet (arg0)
 	approveRaw, err := hex.DecodeString(strings.TrimPrefix(approve.Data, "0x"))
 	require.NoError(t, err)
 	require.Len(t, approveRaw, 4+32+32)
@@ -60,7 +50,6 @@ func TestPrepareCalls_DepositGolden(t *testing.T) {
 	assert.Equal(t, strings.ToLower(strings.TrimPrefix(wallet, "0x")),
 		hex.EncodeToString(spenderWord[12:]))
 
-	// amount = shortfall 1000000
 	amtWord := approveRaw[4+32:]
 	assert.Equal(t, "00000000000000000000000000000000000000000000000000000000000f4240",
 		hex.EncodeToString(amtWord))
@@ -80,9 +69,6 @@ func TestPrepareCalls_DepositGolden(t *testing.T) {
 	assert.Equal(t, "00000000000000000000000000000000000000000000000000000000000f4240",
 		hex.EncodeToString(depositRaw[4+32:]))
 
-	// Withdraw step has no prepare_calls.
-	assert.Empty(t, p.Steps[1].PrepareCalls)
-	// Shortfall-only amount preserved.
 	assert.True(t, dep.AmountAtomic.Equal(decimal.RequireFromString("1000000")))
 	assert.Equal(t, agentAddr, dep.Recipient)
 }
@@ -102,8 +88,8 @@ func TestPrepareCalls_DoesNotMutateStepIdentity(t *testing.T) {
 	require.Len(t, p.Steps[0].PrepareCalls, 2)
 }
 
-func TestPlan_DepositWithdraw_ShortfallPrepareCalls_Regression(t *testing.T) {
-	// Fragmented: need 42 on Base, 20 Base + 30 Arb → shortfall 22 with prepare on deposit only.
+func TestPlan_PhaseB_OtherNative_NoDepositPrepareCalls(t *testing.T) {
+	// Fragmented: need 42 on Base, 20 Base + 30 Arb → Phase B CCTP shortfall 22; no deposit steps.
 	req := baseRequired()
 	req.AmountAtomic = decimal.RequireFromString("42000000")
 	inv := liquidity.Inventory{
@@ -115,14 +101,10 @@ func TestPlan_DepositWithdraw_ShortfallPrepareCalls_Regression(t *testing.T) {
 	}
 	p, err := liquidity.PlanLiquidity(req, inv, nil)
 	require.NoError(t, err)
-	assert.Equal(t, liquidity.ActionCircleGatewayDepositWithdraw, p.Action)
+	assert.Equal(t, liquidity.ActionCCTPFast, p.Action)
 	require.Len(t, p.Steps, 2)
 	assert.True(t, p.Steps[0].AmountAtomic.Equal(decimal.RequireFromString("22000000")))
-	require.Len(t, p.Steps[0].PrepareCalls, 2)
+	assert.Equal(t, liquidity.StepKindCCTPBurn, p.Steps[0].Kind)
+	assert.Empty(t, p.Steps[0].PrepareCalls)
 	assert.Empty(t, p.Steps[1].PrepareCalls)
-	wallet, ok := liquidity.GatewayWalletAddress(arbCAIP2)
-	require.True(t, ok)
-	assert.Equal(t, liquidity.GatewayWalletMainnet, wallet)
-	assert.Equal(t, wallet, p.Steps[0].PrepareCalls[1].To)
-	assert.Equal(t, arbUSDC, p.Steps[0].PrepareCalls[0].To)
 }
