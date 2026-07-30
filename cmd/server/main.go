@@ -1,7 +1,9 @@
 // Command server is a thin HTTP microservice wrapping the pure liquidity planner.
 //
 //	POST /v1/plan         — dry plan (execute defaults false; true fails closed unless testnet execute enabled)
+//	POST /v1/payment-funding — scenario full-funding
 //	POST /v1/consolidate  — Gateway deposit plan (+ optional testnet execute)
+//	POST /v1/inventory    — request-scoped live balances (agent_address only; never invent from env/key)
 //	GET  /v1/chains       — registered corridors (discovery for agents)
 //	GET  /healthz
 //
@@ -11,115 +13,66 @@
 package main
 
 import (
-	"fmt"
+	"context"
 	"log"
-	"net"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 
-	"github.com/shopspring/decimal"
-
 	"github.com/kaimo-no/usdc-liquidity-orchestrator/internal/envfile"
+	"github.com/kaimo-no/usdc-liquidity-orchestrator/internal/execenv"
 	"github.com/kaimo-no/usdc-liquidity-orchestrator/internal/httpserver"
+	"github.com/kaimo-no/usdc-liquidity-orchestrator/internal/inventory"
 	"github.com/kaimo-no/usdc-liquidity-orchestrator/internal/rpcenv"
-	"github.com/kaimo-no/usdc-liquidity-orchestrator/pkg/execonchain"
+	liqerr "github.com/kaimo-no/usdc-liquidity-orchestrator/pkg/errors"
 	"github.com/kaimo-no/usdc-liquidity-orchestrator/pkg/liquidity"
 )
 
 func main() {
-	// Optional local .env (never logs values; does not override existing env).
-	// Same pattern as cmd/demo so dual-gate execute vars can live in gitignored .env.
 	if err := envfile.Load(".env"); err != nil {
 		log.Fatal(err)
 	}
 
 	addr := envOr("LISTEN_ADDR", ":8088")
-	ex, err := buildExecutor(addr)
+	ex, err := execenv.BuildExecutor(execenv.Options{RequireLoopbackListen: addr})
 	if err != nil {
 		log.Fatal(err)
 	}
+	if os.Getenv("ENABLE_TESTNET_EXECUTE") == "1" {
+		log.Printf("testnet gateway execute enabled (consolidate + deposit_withdraw; loopback only)")
+	}
 	s := &http.Server{
-		Addr:              addr,
-		Handler:           httpserver.LogRequests(httpserver.NewMuxWithOptions(httpserver.MuxOptions{Executor: ex})),
+		Addr: addr,
+		Handler: httpserver.LogRequests(httpserver.NewMuxWithOptions(httpserver.MuxOptions{
+			Executor:      ex,
+			LoadInventory: loadInventory,
+		})),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	log.Printf("usdc-liquidity-orchestrator listening on %s", addr)
 	log.Fatal(s.ListenAndServe())
 }
 
-// buildExecutor returns UnconfiguredExecutor unless dual-gated testnet execute is on.
-func buildExecutor(listenAddr string) (liquidity.Executor, error) {
-	guard, err := guardFromEnv()
-	if err != nil {
-		return nil, err
-	}
-	if os.Getenv("ENABLE_TESTNET_EXECUTE") != "1" {
-		return liquidity.UnconfiguredExecutor{Guard: guard}, nil
-	}
-	if !isLoopbackListen(listenAddr) {
-		return nil, fmt.Errorf("ENABLE_TESTNET_EXECUTE requires loopback LISTEN_ADDR (127.0.0.1, ::1, or localhost)")
-	}
-	key := strings.TrimSpace(os.Getenv("AGENT_PRIVATE_KEY"))
-	if key == "" {
-		return nil, fmt.Errorf("AGENT_PRIVATE_KEY required when ENABLE_TESTNET_EXECUTE=1")
-	}
+// loadInventory is request-scoped live load: agent from body only (never env/key).
+// Empty RPC map → 503 pre-net; 30s timeout; Gateway soft-skip inside inventory.Load.
+func loadInventory(ctx context.Context, agentAddress string) (liquidity.Inventory, error) {
 	rpcs, err := rpcenv.LoadEVMTestnetExecuteRPCs()
 	if err != nil {
-		return nil, err
+		return liquidity.Inventory{}, liqerr.New(liqerr.CodeLiquidityRailUnavailable,
+			"inventory: RPC configuration unavailable")
 	}
 	if len(rpcs) == 0 {
-		return nil, fmt.Errorf("testnet EVM RPC required when ENABLE_TESTNET_EXECUTE=1 (RPC_URL_BASE_SEPOLIA / ARBITRUM_SEPOLIA / ARC_TESTNET, RPC_URL_eip155_*, or RPC_URLS_JSON)")
+		return liquidity.Inventory{}, liqerr.New(liqerr.CodeLiquidityRailUnavailable,
+			"inventory: RPC map required")
 	}
-	gwAPI := strings.TrimSpace(os.Getenv("GATEWAY_API_BASE"))
-	ex, err := execonchain.NewDepositExecutor(execonchain.Config{
-		PrivateKeyHex: key,
-		RPCs:          rpcs,
-		Guard:         guard,
-		GatewayAPI:    gwAPI,
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	return inventory.Load(ctx, inventory.Config{
+		AgentAddress: agentAddress,
+		RPCs:         rpcs,
+		GatewayAPI:   strings.TrimSpace(os.Getenv("GATEWAY_API_BASE")),
 	})
-	if err != nil {
-		return nil, err
-	}
-	log.Printf("testnet gateway execute enabled (consolidate + deposit_withdraw; loopback only)")
-	return ex, nil
-}
-
-// guardFromEnv builds a Guard with optional MAX_AMOUNT_ATOMIC cap.
-func guardFromEnv() (*liquidity.Guard, error) {
-	g := &liquidity.Guard{}
-	if raw := strings.TrimSpace(os.Getenv("MAX_AMOUNT_ATOMIC")); raw != "" {
-		d, err := decimal.NewFromString(raw)
-		if err != nil || !d.IsPositive() {
-			return nil, fmt.Errorf("MAX_AMOUNT_ATOMIC: must be a positive decimal integer (atomic units)")
-		}
-		g.MaxAmountAtomic = d
-	}
-	return g, nil
-}
-
-// isLoopbackListen accepts host parts that bind only to loopback.
-// Bare ":port" is NOT loopback (binds all interfaces) — refuse for execute.
-func isLoopbackListen(addr string) bool {
-	host, _, err := net.SplitHostPort(addr)
-	if err != nil {
-		// Try as host only or bracketed IPv6.
-		host = strings.Trim(addr, "[]")
-		if i := strings.LastIndex(addr, ":"); i > 0 && !strings.Contains(addr, "]") {
-			host = addr[:i]
-		}
-	}
-	host = strings.TrimSpace(host)
-	if host == "" {
-		return false
-	}
-	switch strings.ToLower(host) {
-	case "127.0.0.1", "localhost", "::1":
-		return true
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
 }
 
 func envOr(k, def string) string {

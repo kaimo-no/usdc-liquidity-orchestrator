@@ -1,8 +1,9 @@
-// Package httpserver is the thin HTTP surface over pkg/liquidity.
+// Package httpserver is the thin HTTP surface over pkg/liquidity via planio.
 // cmd/server wires ListenAndServe; black-box tests use NewMux / NewMuxWithOptions.
 package httpserver
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -12,8 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shopspring/decimal"
-
+	"github.com/kaimo-no/usdc-liquidity-orchestrator/internal/planio"
 	liqerr "github.com/kaimo-no/usdc-liquidity-orchestrator/pkg/errors"
 	"github.com/kaimo-no/usdc-liquidity-orchestrator/pkg/liquidity"
 	"github.com/kaimo-no/usdc-liquidity-orchestrator/pkg/types"
@@ -22,10 +22,13 @@ import (
 //go:embed static/*
 var staticEmbed embed.FS
 
-// MuxOptions configures optional execute wiring. Zero value is plan-only default.
+// MuxOptions configures optional execute and inventory wiring. Zero value is plan-only.
 type MuxOptions struct {
 	// Executor runs plans when request execute=true. Nil → UnconfiguredExecutor.
 	Executor liquidity.Executor
+	// LoadInventory loads request-scoped live balances for POST /v1/inventory.
+	// Nil → 503 liquidity_rail_unavailable (no network). Plan path never calls this.
+	LoadInventory func(ctx context.Context, agentAddress string) (liquidity.Inventory, error)
 }
 
 // NewMux returns the service routes (plan-only default: UnconfiguredExecutor).
@@ -34,13 +37,13 @@ func NewMux() http.Handler {
 	return NewMuxWithOptions(MuxOptions{})
 }
 
-// NewMuxWithOptions returns routes with an optional live Executor.
+// NewMuxWithOptions returns routes with optional live Executor and inventory loader.
 func NewMuxWithOptions(opts MuxOptions) http.Handler {
 	ex := opts.Executor
 	if ex == nil {
 		ex = liquidity.UnconfiguredExecutor{}
 	}
-	s := &server{ex: ex}
+	s := &server{ex: ex, loadInventory: opts.LoadInventory}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -51,22 +54,22 @@ func NewMuxWithOptions(opts MuxOptions) http.Handler {
 	mux.HandleFunc("POST /v1/plan", s.handlePlan)
 	mux.HandleFunc("POST /v1/consolidate", s.handleConsolidate)
 	mux.HandleFunc("POST /v1/payment-funding", s.handlePaymentFunding)
+	mux.HandleFunc("POST /v1/inventory", s.handleInventory)
 
 	staticRoot, err := fs.Sub(staticEmbed, "static")
 	if err != nil {
-		// Embed layout bug — fail closed at process start rather than silent 404 UI.
 		panic("httpserver: embed static/: " + err.Error())
 	}
-	// GET / and static assets; more specific /v1/* and /healthz win on ServeMux.
 	mux.Handle("GET /", http.FileServer(http.FS(staticRoot)))
 	return mux
 }
 
 type server struct {
-	ex liquidity.Executor
+	ex            liquidity.Executor
+	loadInventory func(ctx context.Context, agentAddress string) (liquidity.Inventory, error)
 }
 
-// LogRequests wraps next without logging request bodies (wallet inventory).
+// LogRequests wraps next logging method + path only (never query, body, agent, balances).
 func LogRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -76,17 +79,7 @@ func LogRequests(next http.Handler) http.Handler {
 }
 
 func handleChains(w http.ResponseWriter, _ *http.Request) {
-	reg := liquidity.ListChains()
-	out := make([]types.ChainInfo, 0, len(reg))
-	for _, c := range reg {
-		wallet, _ := liquidity.GatewayWalletAddress(c.CAIP2)
-		out = append(out, types.ChainInfo{
-			CAIP2: c.CAIP2, Name: c.Name, GatewayDomain: c.GatewayDomain,
-			USDC: c.USDC, GatewayOK: c.GatewayOK, CCTPOK: c.CCTPOK,
-			Testnet: c.Testnet, GatewayWallet: wallet,
-		})
-	}
-	writeJSON(w, http.StatusOK, types.ChainsResponse{Chains: out})
+	writeJSON(w, http.StatusOK, planio.ListChains())
 }
 
 func (s *server) handlePlan(w http.ResponseWriter, r *http.Request) {
@@ -95,28 +88,8 @@ func (s *server) handlePlan(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, liqerr.CodeInvalidQuery, "invalid JSON body")
 		return
 	}
-
-	required, err := liquidity.RequiredFromWire(&req.Required, req.AmountOverride)
-	if err != nil {
-		writeCoded(w, err)
-		return
-	}
-	inv, err := liquidity.InventoryFromWire(req.Inventory)
-	if err != nil {
-		writeCoded(w, err)
-		return
-	}
-
-	orch := liquidity.OrchestrationFromWire(req.Orchestration)
-	fee := liquidity.FeeConfigFromWire(req.FeeBps, req.FeeRecipient)
-
-	plan, err := liquidity.PlanOrchestration(required, inv, orch, fee, nil)
-	if err != nil {
-		writeCoded(w, err)
-		return
-	}
-
-	s.stampAndWrite(w, r, plan, req.Execute)
+	resp, outcome := planio.RunPlan(r.Context(), s.ex, req)
+	writeJSON(w, planio.HTTPStatus(outcome), resp)
 }
 
 func (s *server) handleConsolidate(w http.ResponseWriter, r *http.Request) {
@@ -125,168 +98,78 @@ func (s *server) handleConsolidate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, liqerr.CodeInvalidQuery, "invalid JSON body")
 		return
 	}
-
-	inv, err := liquidity.InventoryFromWire(req.Inventory)
-	if err != nil {
-		writeCoded(w, err)
-		return
-	}
-	orch := liquidity.OrchestrationFromWire(req.Orchestration)
-
-	plan, err := liquidity.PlanConsolidate(inv, orch, nil)
-	if err != nil {
-		writeCoded(w, err)
-		return
-	}
-
-	s.stampAndWrite(w, r, plan, req.Execute)
+	resp, outcome := planio.RunConsolidate(r.Context(), s.ex, req)
+	writeJSON(w, planio.HTTPStatus(outcome), resp)
 }
 
-// handlePaymentFunding plans scenario full-funding (hard-coded multi-source deposits + withdraw).
-// Unlike /v1/plan (shortfall-only), this path moves explicit source amounts then full payment_real.
 func (s *server) handlePaymentFunding(w http.ResponseWriter, r *http.Request) {
 	var req types.PaymentFundingRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
 		writeErr(w, liqerr.CodeInvalidQuery, "invalid JSON body")
 		return
 	}
-
-	required, err := liquidity.RequiredFromWire(&req.Required, "")
-	if err != nil {
-		writeCoded(w, err)
-		return
-	}
-	// Optional logical / scale stamps from wire required envelope.
-	if log := strings.TrimSpace(req.Required.AmountLogicalAtomic); log != "" {
-		// RequiredFromWire already set AmountAtomic (real). Attach logical for PlanToWire.
-		if d, err := decimal.NewFromString(log); err == nil && d.IsPositive() && d.Equal(d.Truncate(0)) {
-			required.AmountLogicalAtomic = d.Truncate(0)
-		}
-	}
-	if req.Required.ScaleFactor > 0 {
-		required.ScaleFactor = req.Required.ScaleFactor
-	}
-
-	inv, err := liquidity.InventoryFromWire(req.Inventory)
-	if err != nil {
-		writeCoded(w, err)
-		return
-	}
-	sources, err := liquidity.FundingSourcesFromWire(req.Sources)
-	if err != nil {
-		writeCoded(w, err)
-		return
-	}
-
-	plan, err := liquidity.PlanPaymentFunding(required, inv, sources, nil)
-	if err != nil {
-		writeCoded(w, err)
-		return
-	}
-
-	s.stampAndWrite(w, r, plan, req.Execute)
+	resp, outcome := planio.RunPaymentFunding(r.Context(), s.ex, req)
+	writeJSON(w, planio.HTTPStatus(outcome), resp)
 }
 
-func (s *server) stampAndWrite(w http.ResponseWriter, r *http.Request, plan liquidity.Plan, execute bool) {
-	wire := liquidity.PlanToWire(plan)
-	var receipt liquidity.Receipt
-	var execErr error
-	if execute {
-		receipt, execErr = s.ex.Execute(r.Context(), plan)
+func (s *server) handleInventory(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+
+	var req types.InventoryRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
+		writeAPIErr(w, http.StatusBadRequest, liqerr.CodeInvalidQuery, "invalid JSON body")
+		return
 	}
-	resp, status := stampPlanResponse(wire, execute, receipt, execErr)
-	writeJSON(w, status, resp)
+	agent := strings.TrimSpace(req.AgentAddress)
+	if agent == "" {
+		writeAPIErr(w, http.StatusBadRequest, liqerr.CodeInvalidQuery, "agent_address required")
+		return
+	}
+	if s.loadInventory == nil {
+		writeAPIErr(w, http.StatusServiceUnavailable, liqerr.CodeLiquidityRailUnavailable,
+			"inventory load unavailable")
+		return
+	}
+
+	inv, err := s.loadInventory(r.Context(), agent)
+	if err != nil {
+		code, msg, status := inventoryAPIError(err)
+		writeAPIErr(w, status, code, msg)
+		return
+	}
+	writeJSON(w, http.StatusOK, liquidity.InventoryToWire(inv))
 }
 
-// stampPlanResponse applies dry/execute stamps and receipt according to design:
-//
-//	execute=false → forceDry, no receipt, 200
-//	success all → dry_run=false executed=true + receipt hashes, 200
-//	partial (hashes+err) → dry_run=false executed=false + receipt + error, 400
-//	fail zero hashes → forceDry + error, 400
-func stampPlanResponse(wire types.Plan, execute bool, receipt liquidity.Receipt, execErr error) (types.PlanResponse, int) {
-	if !execute {
-		return types.PlanResponse{Plan: forceDryStamps(wire)}, http.StatusOK
-	}
-
-	hashes := append([]string(nil), receipt.TxHashes...)
-	apiErr := sanitizeAPIError(execErr)
-
-	if execErr == nil {
-		wire.DryRun = false
-		wire.Executed = true
-		wire.InventoryAsserted = true
-		wire.InventoryUnverified = true
-		resp := types.PlanResponse{Plan: wire}
-		if len(hashes) > 0 {
-			resp.Receipt = &types.ExecuteReceipt{TxHashes: hashes}
-		}
-		return resp, http.StatusOK
-	}
-
-	if len(hashes) > 0 {
-		// Partial: some txs landed; never claim full success.
-		wire.DryRun = false
-		wire.Executed = false
-		wire.InventoryAsserted = true
-		wire.InventoryUnverified = true
-		return types.PlanResponse{
-			Plan:    wire,
-			Receipt: &types.ExecuteReceipt{TxHashes: hashes},
-			Error:   apiErr,
-		}, http.StatusBadRequest
-	}
-
-	// Zero hashes: force dry stamps.
-	return types.PlanResponse{
-		Plan:  forceDryStamps(wire),
-		Error: apiErr,
-	}, http.StatusBadRequest
-}
-
-// sanitizeAPIError maps execute errors to stable code + fixed Message (no raw RPC).
-func sanitizeAPIError(err error) *types.APIError {
-	if err == nil {
-		return nil
-	}
+// inventoryAPIError maps load errors to bare APIError fields + HTTP status.
+// invalid_query → 400; rail/other → 503. Messages are sanitized (no RPC/body).
+func inventoryAPIError(err error) (code, msg string, status int) {
 	var e *liqerr.Error
 	if errors.As(err, &e) && e != nil {
-		code := e.Code
-		if code == "" {
-			code = liqerr.CodeLiquidityRailUnavailable
-		}
-		msg := e.Message
-		if msg == "" {
-			msg = "execute failed"
-		}
-		return &types.APIError{Code: code, Message: msg}
+		code = e.Code
+		msg = e.Message
+	} else {
+		code = liqerr.CodeOf(err)
+		msg = "inventory load failed"
 	}
-	code := liqerr.CodeOf(err)
 	if code == "" {
 		code = liqerr.CodeLiquidityRailUnavailable
 	}
-	return &types.APIError{Code: code, Message: "execute failed"}
+	if msg == "" {
+		msg = "inventory load failed"
+	}
+	if code == liqerr.CodeInvalidQuery {
+		return code, msg, http.StatusBadRequest
+	}
+	if code != liqerr.CodeLiquidityRailUnavailable {
+		code = liqerr.CodeLiquidityRailUnavailable
+	}
+	return code, msg, http.StatusServiceUnavailable
 }
 
-func forceDryStamps(wire types.Plan) types.Plan {
-	wire.DryRun = true
-	wire.Executed = false
-	wire.InventoryAsserted = true
-	wire.InventoryUnverified = true
-	return wire
-}
-
-func writeCoded(w http.ResponseWriter, err error) {
-	code := liqerr.CodeOf(err)
-	if code == "" {
-		code = liqerr.CodeInvalidQuery
-	}
-	msg := err.Error()
-	var e *liqerr.Error
-	if errors.As(err, &e) && e != nil && e.Message != "" {
-		msg = e.Message
-	}
-	writeErr(w, code, msg)
+// writeAPIErr writes a bare types.APIError (not PlanResponse) with Cache-Control: no-store.
+func writeAPIErr(w http.ResponseWriter, status int, code, msg string) {
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, status, types.APIError{Code: code, Message: msg})
 }
 
 func writeErr(w http.ResponseWriter, code, msg string) {

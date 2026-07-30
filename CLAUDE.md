@@ -20,8 +20,11 @@ It does **not** take product custody and does **not** route funds through a plat
 | L0 wire types (`pkg/types`) | shipped |
 | L1 pure planner (`pkg/liquidity`) | shipped — shortfall-only + scenario full-funding (`PlanPaymentFunding`) |
 | L2 execute | fail-closed default; optional **testnet-only** Gateway deposit + burn/mint (`pkg/execonchain`) |
-| HTTP microservice (`cmd/server`) | `GET /` UI, `POST /v1/plan`, `POST /v1/payment-funding`, `POST /v1/consolidate`, `GET /v1/chains`, `GET /healthz` |
-| CLI demo (`cmd/demo`) | env payment scenario full-funding dry plan (+ optional live inventory) + shortfall smoke + consolidate (+ optional live testnet execute) |
+| Shared I/O | `internal/planio` stamps + Run*; `internal/execenv` dual-gate Executor |
+| HTTP microservice (`cmd/server`) | `GET /` UI, `POST /v1/plan`, `POST /v1/payment-funding`, `POST /v1/consolidate`, `POST /v1/inventory`, `GET /v1/chains`, `GET /healthz` |
+| CLI (`cmd/usdc-liq`) | dual peer: plan/consolidate/payment-funding/chains + inventory/demo/version |
+| CLI demo (`cmd/demo`) | thin → `internal/demorun`; also `usdc-liq demo` |
+| Product skill | `skills/usdc-liquidity/` |
 
 Related private monorepo: `kaimo-no/kaimo-go` (World B commerce router can call this as a library or HTTP service). **This repo has zero import of kaimo-go.**
 
@@ -31,11 +34,17 @@ Related private monorepo: `kaimo-no/kaimo-go` (World B commerce router can call 
 |---|---|---|
 | `pkg/liquidity/` | Pure planner, guard, corridor matrix, executor stub | [pkg/liquidity/CLAUDE.md](pkg/liquidity/CLAUDE.md) |
 | `pkg/execonchain/` | Optional testnet-only Gateway deposit + burn/mint execute | [pkg/execonchain/CLAUDE.md](pkg/execonchain/CLAUDE.md) |
-| `internal/inventory/` | Live native USDC + optional Gateway balances (demo) | inline |
+| `internal/planio/` | Shared stamp + RunPlan/Consolidate/PaymentFunding | inline |
+| `internal/execenv/` | Dual-gate BuildExecutor from env | inline |
+| `internal/liqcli/` | usdc-liq Main (subcommands) | inline |
+| `internal/demorun/` | Worked demo body | inline |
+| `internal/inventory/` | Live native USDC + optional Gateway balances | inline |
 | `pkg/types/` | Agent-facing wire JSON shapes | [pkg/types/CLAUDE.md](pkg/types/CLAUDE.md) |
 | `pkg/errors/` | Stable `.Code` strings (`insufficient_liquidity`, …) | [pkg/errors/CLAUDE.md](pkg/errors/CLAUDE.md) |
 | `cmd/server/` | Thin HTTP microservice | [cmd/server/CLAUDE.md](cmd/server/CLAUDE.md) |
-| `cmd/demo/` | CLI worked example | inline |
+| `cmd/usdc-liq/` | Dual-surface CLI | [cmd/usdc-liq/CLAUDE.md](cmd/usdc-liq/CLAUDE.md) |
+| `cmd/demo/` | Thin demo wrapper | → demorun |
+| `skills/usdc-liquidity/` | Product skill (CLI + HTTP + invariants) | [SKILL.md](skills/usdc-liquidity/SKILL.md) |
 
 ## Repo-wide invariants
 
@@ -56,7 +65,7 @@ Related private monorepo: `kaimo-no/kaimo-go` (World B commerce router can call 
 - **Orchestration options:** optional `target_chain_caip2` (must match required), `source_chain_caip2s` allowlist, `allow_circle_gateway`, `prefer_rail`.
 - **Fee:** optional `fee_bps` + `fee_recipient` — plan.fee envelope only (never a step); settle via x402 after prepare; not a fund-rail destination.
 - **`agent_address == pay_to` refused** on fund-moving plans (anti–confused-deputy).
-- **No durable buyer ledger** in this repo. Inventory is request-scoped; do not log balances, wallet private keys, or prepare calldata (`/v1/plan` and `/v1/consolidate`).
+- **No durable buyer ledger** in this repo. Inventory is request-scoped; do not log balances, wallet private keys, or prepare calldata (`/v1/plan`, `/v1/consolidate`, `/v1/inventory`).
 - **Canonical layout:** library packages under `pkg/`; thin `cmd/*/main.go`; black-box tests under `tests/` as `package <foo>_test`.
 - **Sources / adapters are small interfaces** (`Executor`). No type embedding for behaviour reuse.
 
@@ -95,7 +104,9 @@ bash scripts/check-no-live-secrets.sh
 go vet ./...
 golangci-lint run
 
-go run ./cmd/demo
+go run ./cmd/usdc-liq plan -f examples/plan.json
+go run ./cmd/usdc-liq demo
+go run ./cmd/demo            # same demorun path
 go run ./cmd/server   # LISTEN_ADDR=:8088 — UI at http://127.0.0.1:8088/
 bash examples/curl.sh
 

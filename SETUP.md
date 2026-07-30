@@ -20,11 +20,29 @@ go test -v -race ./...
 bash scripts/check-test-layout.sh
 ```
 
+## CLI (`usdc-liq`)
+
+Dual-surface peer of the HTTP server. Shared stamps via `internal/planio`.
+
+```bash
+go run ./cmd/usdc-liq plan -f examples/plan.json
+go run ./cmd/usdc-liq consolidate -f examples/consolidate-testnet.json
+go run ./cmd/usdc-liq payment-funding -f -   # stdin JSON
+go run ./cmd/usdc-liq chains
+go run ./cmd/usdc-liq version
+# CLI-only:
+go run ./cmd/usdc-liq inventory -agent 0x…   # needs RPC env; no secrets in notes
+go run ./cmd/usdc-liq demo
+```
+
+Dry is default (no live config). `--execute` needs dual-gate env (`ENABLE_TESTNET_EXECUTE=1` + key + RPCs); incomplete config exits 1 sanitized without Execute. Body limit 1 MiB. Product skill: [`skills/usdc-liquidity/`](./skills/usdc-liquidity/).
+
 ## Demo (worked example)
 
 ```bash
 cp .env.example .env   # optional; fill AGENT_ADDRESS + payment scenario
-go run ./cmd/demo
+go run ./cmd/usdc-liq demo
+go run ./cmd/demo      # thin wrapper → same demorun
 ```
 
 Primary path (when `PAYMENT_CHAIN` / scenario env is set): **full-funding** dry plan via `PlanPaymentFunding` — hard-coded `SOURCE_AMOUNT_*` deposits (scaled by `USDC_SCALE_FACTOR`) + withdraw full payment real to `agent_self`. Wire stamps `amount_atomic` (real) and optional `amount_logical_atomic` / `scale_factor`.
@@ -85,8 +103,9 @@ Configs live in [`.vscode/launch.json`](./.vscode/launch.json). UI amounts are *
 
 Multi-stage image builds a static `cmd/server` binary (distroless, non-root). **Plan-only by default** — no secrets required. The UI supports:
 
-| Tab | Endpoint |
+| Tab / control | Endpoint |
 |---|---|
+| Load live inventory | `POST /v1/inventory` (`{"agent_address"}`; needs testnet RPCs) |
 | Scenario | `POST /v1/payment-funding` (full hard-coded sources + scale) |
 | Plan | `POST /v1/plan` (shortfall-only) |
 | Consolidate | `POST /v1/consolidate` |
