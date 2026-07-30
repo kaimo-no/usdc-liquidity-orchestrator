@@ -774,6 +774,20 @@ func PlanToWire(p Plan) types.Plan {
 	}
 }
 
+// InventoryToWire maps planner Inventory to agent-facing types.Inventory.
+func InventoryToWire(inv Inventory) types.Inventory {
+	out := types.Inventory{AgentAddress: inv.AgentAddress}
+	for _, b := range inv.Balances {
+		out.Balances = append(out.Balances, types.Balance{
+			ChainCAIP2:   b.ChainCAIP2,
+			Asset:        b.Asset,
+			AmountAtomic: b.AmountAtomic.String(),
+			Location:     b.Location,
+		})
+	}
+	return out
+}
+
 // InventoryFromWire parses wire inventory into planner Inventory.
 // Non-positive balance amounts (zero or negative) are rejected as invalid_query.
 func InventoryFromWire(inv types.Inventory) (Inventory, error) {

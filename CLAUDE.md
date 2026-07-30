@@ -21,7 +21,7 @@ It does **not** take product custody and does **not** route funds through a plat
 | L1 pure planner (`pkg/liquidity`) | shipped — shortfall-only + scenario full-funding (`PlanPaymentFunding`) |
 | L2 execute | fail-closed default; optional **testnet-only** Gateway deposit + burn/mint (`pkg/execonchain`) |
 | Shared I/O | `internal/planio` stamps + Run*; `internal/execenv` dual-gate Executor |
-| HTTP microservice (`cmd/server`) | `GET /` UI, `POST /v1/plan`, `POST /v1/payment-funding`, `POST /v1/consolidate`, `GET /v1/chains`, `GET /healthz` |
+| HTTP microservice (`cmd/server`) | `GET /` UI, `POST /v1/plan`, `POST /v1/payment-funding`, `POST /v1/consolidate`, `POST /v1/inventory`, `GET /v1/chains`, `GET /healthz` |
 | CLI (`cmd/usdc-liq`) | dual peer: plan/consolidate/payment-funding/chains + inventory/demo/version |
 | CLI demo (`cmd/demo`) | thin → `internal/demorun`; also `usdc-liq demo` |
 | Product skill | `skills/usdc-liquidity/` |
@@ -65,7 +65,7 @@ Related private monorepo: `kaimo-no/kaimo-go` (World B commerce router can call 
 - **Orchestration options:** optional `target_chain_caip2` (must match required), `source_chain_caip2s` allowlist, `allow_circle_gateway`, `prefer_rail`.
 - **Fee:** optional `fee_bps` + `fee_recipient` — plan.fee envelope only (never a step); settle via x402 after prepare; not a fund-rail destination.
 - **`agent_address == pay_to` refused** on fund-moving plans (anti–confused-deputy).
-- **No durable buyer ledger** in this repo. Inventory is request-scoped; do not log balances, wallet private keys, or prepare calldata (`/v1/plan` and `/v1/consolidate`).
+- **No durable buyer ledger** in this repo. Inventory is request-scoped; do not log balances, wallet private keys, or prepare calldata (`/v1/plan`, `/v1/consolidate`, `/v1/inventory`).
 - **Canonical layout:** library packages under `pkg/`; thin `cmd/*/main.go`; black-box tests under `tests/` as `package <foo>_test`.
 - **Sources / adapters are small interfaces** (`Executor`). No type embedding for behaviour reuse.
 

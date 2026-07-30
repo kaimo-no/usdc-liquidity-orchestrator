@@ -214,7 +214,7 @@ func runInventoryCmd(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "inventory load failed\n")
 		return 1
 	}
-	wire := inventoryToWire(inv)
+	wire := liquidity.InventoryToWire(inv)
 	return writeJSON(stdout, wire)
 }
 
@@ -251,19 +251,6 @@ func ValidateInventoryRPCs(rpcs map[string]string) error {
 		return fmt.Errorf("inventory: RPC map required (set RPC_URL_BASE_SEPOLIA / ARBITRUM_SEPOLIA / ARC_TESTNET or RPC_URLS_JSON)")
 	}
 	return nil
-}
-
-func inventoryToWire(inv liquidity.Inventory) types.Inventory {
-	out := types.Inventory{AgentAddress: inv.AgentAddress}
-	for _, b := range inv.Balances {
-		out.Balances = append(out.Balances, types.Balance{
-			ChainCAIP2:   b.ChainCAIP2,
-			Asset:        b.Asset,
-			AmountAtomic: b.AmountAtomic.String(),
-			Location:     b.Location,
-		})
-	}
-	return out
 }
 
 func addSharedFlags(fs *flag.FlagSet) (file *string, execute *bool) {

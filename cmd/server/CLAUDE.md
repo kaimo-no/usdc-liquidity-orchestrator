@@ -6,14 +6,25 @@ Thin HTTP microservice wrapping `pkg/liquidity` (+ optional `pkg/execonchain`).
 
 | Method | Path | Behaviour |
 |---|---|---|
-| GET | `/` | MVP web UI (scenario / shortfall plan / consolidate / chains) |
+| GET | `/` | MVP web UI (Gateway hero, Live/Asserted/Hybrid inventory, scenario / shortfall plan / consolidate / chains) |
 | GET | `/healthz` | `ok` |
 | GET | `/v1/chains` | Registered corridors (CAIP-2, USDC, Gateway domain, `testnet`, `gateway_wallet`) |
 | POST | `/v1/plan` | Shortfall-only `PlanOrchestration`; stamp dry/execute; optional Executor |
 | POST | `/v1/payment-funding` | Scenario full-funding `PlanPaymentFunding` (hard-coded sources + real amounts) |
 | POST | `/v1/consolidate` | Decode `ConsolidateRequest` → deposit plan; stamp dry/execute; optional Executor |
+| POST | `/v1/inventory` | Request-scoped live load (`{"agent_address"}`); bare `Inventory` / bare `APIError`; `Cache-Control: no-store` |
 
 Handlers live in `internal/httpserver` (`NewMux` / `NewMuxWithOptions`) so `cmd/server/tests` can black-box the surface. Plan/stamp logic is shared with the CLI via `internal/planio`. Executor dual-gate is `internal/execenv.BuildExecutor` (loopback required for HTTP).
+
+### POST /v1/inventory
+
+| Case | HTTP | Body |
+|---|---|---|
+| invalid JSON / empty `agent_address` | 400 | bare `APIError` `invalid_query` |
+| `LoadInventory` nil / empty RPC map / native RPC fail | 503 | bare `APIError` `liquidity_rail_unavailable` |
+| success | 200 | bare `types.Inventory` (Gateway soft-skip OK; may omit `circle_gateway` rows) |
+
+All inventory responses set `Cache-Control: no-store`. Agent is taken from the JSON body only — never invented from env/key. Plan path never calls `LoadInventory`; dry stamps stay `inventory_asserted` + `inventory_unverified`.
 
 ## Execute stamping (`internal/planio.StampPlan`)
 
@@ -47,7 +58,8 @@ Else: `UnconfiguredExecutor` (fail-closed). Live actions: consolidate, deposit_w
 ## Invariants
 
 - Max body 1 MiB (`MaxBytesReader`)
-- **Never log request bodies** (wallet inventory, calldata) — applies to `/v1/plan`, `/v1/payment-funding`, `/v1/consolidate`
+- **Never log request bodies** (wallet inventory, calldata) — applies to `/v1/plan`, `/v1/payment-funding`, `/v1/consolidate`, `/v1/inventory`
+- Path-only request logs (`LogRequests`); never agent, balances, RPC URLs
 - No auth required for local/hackathon; production may add bearer later
 - Default plan responses force `dry_run=true`, `executed=false`, inventory stamps
 

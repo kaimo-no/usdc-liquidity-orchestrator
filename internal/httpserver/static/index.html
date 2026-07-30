@@ -52,7 +52,7 @@
     .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); display: inline-block; }
     .dot.ok { background: var(--ok); box-shadow: 0 0 8px rgba(127, 217, 154, 0.6); }
     .dot.bad { background: var(--err); }
-    main { max-width: 1180px; margin: 0 auto; padding: 20px; display: grid; gap: 16px; }
+    main { max-width: 1240px; margin: 0 auto; padding: 20px; display: grid; gap: 16px; }
     .banner {
       background: #1a2430;
       border: 1px solid var(--border);
@@ -65,6 +65,101 @@
     }
     .banner strong { color: var(--warn); }
     .banner code { color: var(--accent); font-family: var(--mono); font-size: 0.84em; }
+    .agent-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: end;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+    }
+    .agent-bar label {
+      flex: 1 1 280px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      font-size: 0.78rem;
+      color: var(--muted);
+      margin: 0;
+    }
+    .agent-bar .mode-chip {
+      align-self: center;
+      font-size: 0.75rem;
+      padding: 6px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--panel2);
+      color: var(--muted);
+      font-family: var(--mono);
+      white-space: nowrap;
+    }
+    .agent-bar .mode-chip.live { color: var(--accent2); border-color: #245a4c; }
+    .agent-bar .mode-chip.hybrid { color: var(--warn); border-color: #5a4a20; }
+    .agent-bar .mode-chip.asserted { color: var(--muted); }
+    .hero-grid {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr 1fr 1fr;
+      gap: 12px;
+    }
+    @media (max-width: 960px) {
+      .hero-grid { grid-template-columns: 1fr 1fr; }
+      .hero-gateway { grid-column: 1 / -1; }
+    }
+    @media (max-width: 560px) { .hero-grid { grid-template-columns: 1fr; } }
+    .hero-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      min-height: 120px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .hero-gateway {
+      background: linear-gradient(160deg, #152233 0%, #121821 55%, #132a28 100%);
+      border-color: #2a4a5a;
+      text-align: center;
+      align-items: center;
+      justify-content: center;
+    }
+    .hero-card .label {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    .hero-card .amount {
+      font-family: var(--mono);
+      font-size: 1.55rem;
+      font-weight: 650;
+      color: var(--text);
+      line-height: 1.2;
+    }
+    .hero-gateway .amount { font-size: 2rem; color: var(--accent2); }
+    .hero-card .sub {
+      font-size: 0.75rem;
+      color: var(--muted);
+      font-family: var(--mono);
+    }
+    .hero-card .badge {
+      margin-top: 4px;
+      font-size: 0.7rem;
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid #5a4a20;
+      color: var(--warn);
+      background: rgba(240, 180, 41, 0.08);
+      display: inline-block;
+    }
+    .hero-card .status-strip {
+      font-size: 0.72rem;
+      color: var(--muted);
+      margin-top: auto;
+    }
     .tabs { display: flex; gap: 6px; flex-wrap: wrap; }
     .tab {
       background: var(--panel);
@@ -76,7 +171,7 @@
       font: inherit;
     }
     .tab.active { color: var(--text); border-color: var(--accent); background: #152233; }
-    .grid { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 16px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
     @media (max-width: 920px) { .grid { grid-template-columns: 1fr; } }
     .panel {
       background: var(--panel);
@@ -112,7 +207,6 @@
       border-color: var(--accent);
       box-shadow: 0 0 0 3px rgba(61, 156, 240, 0.15);
     }
-    textarea { min-height: 120px; resize: vertical; }
     .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
     button {
       font: inherit;
@@ -163,21 +257,33 @@
       border-radius: 8px;
       padding: 12px;
       overflow: auto;
-      max-height: 58vh;
+      max-height: 42vh;
       font-family: var(--mono);
       font-size: 0.75rem;
       line-height: 1.45;
       color: #c9d7e8;
     }
-    .steps { display: grid; gap: 8px; margin: 10px 0 14px; }
-    .step {
+    .timeline { display: grid; gap: 8px; margin: 0 0 14px; max-height: 48vh; overflow: auto; }
+    .tl-item {
       border: 1px solid var(--border);
       background: var(--panel2);
       border-radius: 8px;
       padding: 10px;
       font-size: 0.82rem;
     }
-    .step code { font-family: var(--mono); color: var(--accent); font-size: 0.78rem; }
+    .tl-item .ts { font-family: var(--mono); font-size: 0.72rem; color: var(--muted); }
+    .tl-item .kind { color: var(--accent); font-family: var(--mono); font-size: 0.78rem; }
+    .tl-item.err { border-color: #5a2a30; }
+    .tl-item.ok { border-color: #2a4a35; }
+    .tl-nested {
+      margin-top: 6px;
+      padding-left: 10px;
+      border-left: 2px solid var(--border);
+      font-size: 0.78rem;
+      color: var(--muted);
+    }
+    .tl-nested details { margin-top: 4px; }
+    .tl-nested summary { cursor: pointer; color: var(--accent); }
     .muted { color: var(--muted); }
     .hidden { display: none !important; }
     .hint {
@@ -197,7 +303,16 @@
       font-family: var(--mono);
     }
     .calc strong { color: var(--accent2); }
+    details.raw-details { margin-top: 8px; }
+    details.raw-details summary {
+      cursor: pointer;
+      color: var(--muted);
+      font-size: 0.8rem;
+      margin-bottom: 8px;
+    }
     footer { text-align: center; color: var(--muted); font-size: 0.75rem; padding: 8px 0 24px; }
+    a.explorer { color: var(--accent); text-decoration: none; }
+    a.explorer:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
@@ -215,12 +330,48 @@
     <div class="banner">
       <strong>Non-custodial.</strong>
       Fund rails always land on <code>agent_self</code> — merchant <code>pay_to</code> is claim metadata only (never a mint/bridge dest).
-      Inventory is client-asserted (<code>inventory_unverified</code>). Never paste private keys into this UI.
-      Amounts in this UI are <strong>human USDC</strong> (e.g. <code>40</code>), not atomic — the browser multiplies by 10^6 for the API.
+      Live inventory is request-scoped and still stamps <code>inventory_unverified</code> on plans — never paste private keys.
+      Amounts in this UI are <strong>human USDC</strong> (e.g. <code>40</code>); the browser multiplies by 10^6 for the API.
       <br /><br />
-      <strong>Scenario</strong> = full hard-coded multi-source funding (scale + sources sum = payment) via <code>POST /v1/payment-funding</code>.
-      <strong>Plan</strong> = classic shortfall rebalance via <code>POST /v1/plan</code>.
-      Live execute needs dual-gate env (loopback + key + RPCs) — <em>disabled in default Docker</em>.
+      <strong>Scenario</strong> = full hard-coded multi-source funding via <code>POST /v1/payment-funding</code>.
+      <strong>Plan</strong> = shortfall rebalance via <code>POST /v1/plan</code>.
+      <strong>Load live inventory</strong> = <code>POST /v1/inventory</code> (native RPCs + optional Circle Gateway).
+    </div>
+
+    <div class="agent-bar">
+      <label>Agent address (agent_self)
+        <input id="agentAddress" spellcheck="false" placeholder="0x…" value="0xAgentSelf000000000000000000000000000001" />
+      </label>
+      <button type="button" class="primary" id="loadInventoryBtn">Load live inventory</button>
+      <span id="modeChip" class="mode-chip asserted" title="Inventory mode">Asserted</span>
+    </div>
+
+    <div class="hero-grid" id="heroGrid" aria-label="Inventory overview">
+      <div class="hero-card hero-gateway">
+        <div class="label">Circle Gateway</div>
+        <div class="amount" id="gwAmount">—</div>
+        <div class="sub">unified · circle_gateway</div>
+        <div id="gwBadge" class="badge hidden">Gateway optional / may be incomplete</div>
+        <div class="status-strip" id="gwStatus">no positive balance returned</div>
+      </div>
+      <div class="hero-card" data-chain="eip155:84532">
+        <div class="label">Base Sepolia</div>
+        <div class="amount" id="amt-eip155:84532">—</div>
+        <div class="sub">native · eip155:84532</div>
+        <div class="status-strip" id="st-eip155:84532">—</div>
+      </div>
+      <div class="hero-card" data-chain="eip155:421614">
+        <div class="label">Arbitrum Sepolia</div>
+        <div class="amount" id="amt-eip155:421614">—</div>
+        <div class="sub">native · eip155:421614</div>
+        <div class="status-strip" id="st-eip155:421614">—</div>
+      </div>
+      <div class="hero-card" data-chain="eip155:5042002">
+        <div class="label">Arc Testnet</div>
+        <div class="amount" id="amt-eip155:5042002">—</div>
+        <div class="sub">native · eip155:5042002</div>
+        <div class="status-strip" id="st-eip155:5042002">—</div>
+      </div>
     </div>
 
     <div class="tabs" role="tablist">
@@ -235,13 +386,12 @@
         <h2 id="formTitle">POST /v1/payment-funding</h2>
 
         <div id="sectionInventory">
-          <label class="full">Agent address (agent_self)
-            <input id="agentAddress" spellcheck="false" placeholder="0x…" value="0xAgentSelf000000000000000000000000000001" />
-          </label>
-
           <div id="sectionBalances">
-            <h2 style="margin-top:6px">Balances (asserted inventory)</h2>
-            <p class="hint" id="balancesHint">Native USDC on source chains. For scenario, reals should cover hard-coded source deposits.</p>
+            <h2 style="margin-top:0">Balances (plan body)</h2>
+            <p class="hint" id="balancesHint">
+              Client-asserted inventory for plan requests. Live load replaces rows; editing after load → Hybrid.
+              Unqueried chains stay “—” on cards and are not invented as amount_atomic 0.
+            </p>
             <div style="overflow-x:auto">
               <table>
                 <thead>
@@ -264,7 +414,7 @@
 
         <div id="sectionScenario">
           <h2 style="margin-top:14px">Payment scenario (logical → real)</h2>
-          <p class="hint">Enter human USDC (e.g. 400). Wire uses atomic = USDC × 10^6; real = floor(logical / scale). Sources must sum to payment.</p>
+          <p class="hint">Human USDC (e.g. 400). Wire atomic = USDC × 10^6; real = floor(logical / scale). Sources must sum to payment.</p>
           <div class="row">
             <label>Scale factor
               <input id="scaleFactor" type="number" min="1" step="1" value="10" />
@@ -282,7 +432,7 @@
             <label>Payment amount (human USDC)
               <input id="scPayHuman" spellcheck="false" value="400" />
             </label>
-            <label class="full">pay_to (merchant — must ≠ agent)
+            <label class="full">pay_to (merchant — must ≠ agent; never auto-filled)
               <input id="scPayTo" spellcheck="false" value="0x0000000000000000000000000000000000000001" />
             </label>
           </div>
@@ -319,7 +469,7 @@
             <label>Protocol
               <input id="reqProtocol" spellcheck="false" value="x402" />
             </label>
-            <label class="full">pay_to (merchant — must ≠ agent_address)
+            <label class="full">pay_to (merchant — must ≠ agent_address; never auto-filled)
               <input id="reqPayTo" spellcheck="false" value="0xMerchantOnArc000000000000000000000001" />
             </label>
           </div>
@@ -369,10 +519,20 @@
       </section>
 
       <section class="panel" id="responsePanel">
-        <h2>Response</h2>
-        <div id="summary" class="summary muted">Submit a request to see the plan.</div>
-        <div id="steps" class="steps"></div>
-        <pre id="rawOut">{}</pre>
+        <h2>Activity timeline</h2>
+        <div id="summary" class="summary muted">Load inventory or submit a request.</div>
+        <div id="timeline" class="timeline"></div>
+        <div class="actions" style="margin-bottom:8px">
+          <label style="flex-direction:row;align-items:center;gap:8px;margin:0">
+            <input id="showCalldata" type="checkbox" style="width:auto" />
+            <span class="muted">Show calldata (prepare_calls[].data)</span>
+          </label>
+          <button type="button" class="ghost" id="clearTimeline">Clear timeline</button>
+        </div>
+        <details class="raw-details" open>
+          <summary>Raw JSON (calldata redacted by default)</summary>
+          <pre id="rawOut">{}</pre>
+        </details>
       </section>
     </div>
 
@@ -400,7 +560,7 @@
     </section>
   </main>
 
-  <footer>Same origin · never log inventory · plan-only by default · execute dual-gated</footer>
+  <footer>Same origin · never log inventory · plan-only by default · execute dual-gated · in-memory activity only</footer>
   <datalist id="chainList"></datalist>
 
   <script>
@@ -414,8 +574,14 @@
       "eip155:421614": { name: "arbitrum-sepolia", usdc: "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d" },
       "eip155:5042002": { name: "arc-testnet", usdc: "0x3600000000000000000000000000000000000000" },
     };
+    const CARD_CHAINS = ["eip155:84532", "eip155:421614", "eip155:5042002"];
 
-    // Examples use human USDC (6 decimals on wire; UI never asks for atomic).
+    const EXPLORERS = {
+      "eip155:84532": "https://sepolia.basescan.org/tx/",
+      "eip155:421614": "https://sepolia.arbiscan.io/tx/",
+      "eip155:5042002": null,
+    };
+
     const EXAMPLES = {
       scenario: {
         agent: "0xAgentSelf000000000000000000000000000001",
@@ -471,8 +637,15 @@
       },
     };
 
+    // Modes: asserted | live | hybrid — never "verified"
+    let invMode = "asserted";
+    let liveHadGatewayRows = false;
+    let liveLoadedOnce = false;
     let activeTab = "scenario";
     let chainCache = [];
+    /** @type {{ts: string, kind: string, html: string, cls?: string}[]} */
+    let activity = [];
+    let suppressHybrid = false;
 
     function setHealth(ok, detail) {
       $("healthDot").className = "dot " + (ok ? "ok" : "bad");
@@ -489,7 +662,6 @@
       }
     }
 
-    // Human USDC (e.g. "40" or "40.5") → whole atomic units (× 10^6). Truncates beyond 6 decimals.
     function humanToAtomic(human) {
       const s = String(human || "").trim();
       if (!s) throw new Error("empty USDC amount");
@@ -500,7 +672,6 @@
       return BigInt(whole || "0") * POW10 + BigInt(frac6 || "0");
     }
 
-    // Atomic units → display string in USDC (trim trailing zeros after decimal).
     function atomicToHuman(atomic) {
       const a = typeof atomic === "bigint" ? atomic : BigInt(String(atomic || "0").trim() || "0");
       const neg = a < 0n;
@@ -514,7 +685,101 @@
     function scaleReal(logical, scale) {
       const sc = BigInt(scale);
       if (sc <= 0n) throw new Error("scale must be > 0");
-      return logical / sc; // floor
+      return logical / sc;
+    }
+
+    function nowTS() {
+      return new Date().toISOString().slice(11, 23);
+    }
+
+    function pushActivity(kind, html, cls) {
+      activity.unshift({ ts: nowTS(), kind, html, cls: cls || "" });
+      if (activity.length > 80) activity.length = 80;
+      renderTimeline();
+    }
+
+    function renderTimeline() {
+      const el = $("timeline");
+      if (!activity.length) {
+        el.innerHTML = `<div class="muted">No activity yet.</div>`;
+        return;
+      }
+      el.innerHTML = activity.map((a) => `
+        <div class="tl-item ${a.cls || ""}">
+          <div class="ts">${esc(a.ts)} · <span class="kind">${esc(a.kind)}</span></div>
+          <div style="margin-top:4px">${a.html}</div>
+        </div>`).join("");
+    }
+
+    function setMode(mode) {
+      invMode = mode;
+      const chip = $("modeChip");
+      chip.className = "mode-chip " + mode;
+      if (mode === "live") chip.textContent = "Live-loaded";
+      else if (mode === "hybrid") chip.textContent = "Hybrid";
+      else chip.textContent = "Asserted";
+    }
+
+    function markHybridIfNeeded() {
+      if (suppressHybrid) return;
+      if (invMode === "live") setMode("hybrid");
+    }
+
+    function updateHeroFromBalances() {
+      const raw = [...$("balancesBody").querySelectorAll("tr")].map((tr) => {
+        const get = (k) => tr.querySelector(`[data-k="${k}"]`).value.trim();
+        return {
+          location: get("location"),
+          chain_caip2: get("chain_caip2"),
+          amount_usdc: get("amount_usdc"),
+        };
+      });
+
+      let gwSum = 0n;
+      let gwAny = false;
+      const nativeByChain = {};
+      for (const r of raw) {
+        if (!r.amount_usdc) continue;
+        let atomic;
+        try { atomic = humanToAtomic(r.amount_usdc); } catch { continue; }
+        if (atomic <= 0n) continue;
+        if (r.location === "circle_gateway") {
+          gwSum += atomic;
+          gwAny = true;
+        } else if (r.location === "native" && r.chain_caip2) {
+          nativeByChain[r.chain_caip2] = (nativeByChain[r.chain_caip2] || 0n) + atomic;
+        }
+      }
+
+      if (gwAny) {
+        $("gwAmount").textContent = atomicToHuman(gwSum) + " USDC";
+        $("gwStatus").textContent = "sum of circle_gateway rows";
+        $("gwBadge").classList.add("hidden");
+      } else {
+        $("gwAmount").textContent = "—";
+        if (liveLoadedOnce && invMode === "live") {
+          $("gwStatus").textContent = "no positive balance returned";
+          $("gwBadge").classList.toggle("hidden", liveHadGatewayRows);
+          if (!liveHadGatewayRows) $("gwBadge").classList.remove("hidden");
+        } else {
+          $("gwStatus").textContent = "no positive balance returned";
+          $("gwBadge").classList.add("hidden");
+        }
+      }
+
+      for (const caip of CARD_CHAINS) {
+        const amtEl = document.getElementById("amt-" + caip);
+        const stEl = document.getElementById("st-" + caip);
+        if (nativeByChain[caip] != null) {
+          amtEl.textContent = atomicToHuman(nativeByChain[caip]) + " USDC";
+          stEl.textContent = "native";
+        } else {
+          amtEl.textContent = "—";
+          stEl.textContent = liveLoadedOnce && (invMode === "live" || invMode === "hybrid")
+            ? "no positive balance returned"
+            : "—";
+        }
+      }
     }
 
     function updateScaleCalc() {
@@ -574,16 +839,18 @@
         location: "native",
         chain_caip2: s.chain_caip2,
         asset: CHAINS[s.chain_caip2].usdc,
-        amount_usdc: s.amount_usdc, // real USDC after scale (covers deposit)
+        amount_usdc: s.amount_usdc,
       }));
-      setBalances(rows.length ? rows : [{ location: "native", chain_caip2: "eip155:84532", asset: CHAINS["eip155:84532"].usdc, amount_usdc: "0" }]);
+      setBalances(rows.length ? rows : []);
+      setMode("asserted");
+      liveLoadedOnce = false;
+      updateHeroFromBalances();
       updateScaleCalc();
     }
 
     function balanceRow(b = {}) {
       const tr = document.createElement("tr");
       tr.className = "bal-row";
-      // Prefer amount_usdc; fall back to converting legacy amount_atomic if present.
       let usdc = b.amount_usdc;
       if (usdc == null || usdc === "") {
         if (b.amount_atomic != null && String(b.amount_atomic).trim() !== "") {
@@ -607,7 +874,21 @@
       tr.querySelector('[data-k="chain_caip2"]').value = b.chain_caip2 || "";
       tr.querySelector('[data-k="asset"]').value = b.asset || "";
       tr.querySelector('[data-k="amount_usdc"]').value = usdc;
-      tr.querySelector("[data-rm]").onclick = () => tr.remove();
+      tr.querySelector("[data-rm]").onclick = () => {
+        tr.remove();
+        markHybridIfNeeded();
+        updateHeroFromBalances();
+      };
+      tr.querySelectorAll("input, select").forEach((el) => {
+        el.addEventListener("input", () => {
+          markHybridIfNeeded();
+          updateHeroFromBalances();
+        });
+        el.addEventListener("change", () => {
+          markHybridIfNeeded();
+          updateHeroFromBalances();
+        });
+      });
       return tr;
     }
 
@@ -633,10 +914,13 @@
     }
 
     function setBalances(rows) {
+      suppressHybrid = true;
       const body = $("balancesBody");
       body.innerHTML = "";
       (rows || []).forEach((b) => body.appendChild(balanceRow(b)));
-      if (!rows || !rows.length) body.appendChild(balanceRow());
+      // Do not invent a zero row when empty — cards show "—"
+      suppressHybrid = false;
+      updateHeroFromBalances();
     }
 
     function applyScenarioExample(ex) {
@@ -655,6 +939,8 @@
     function applyExample(ex, isConsolidate) {
       $("agentAddress").value = ex.agent;
       setBalances(ex.balances);
+      setMode("asserted");
+      liveLoadedOnce = false;
       if (!isConsolidate && ex.required) {
         $("reqChain").value = ex.required.chain_caip2;
         $("reqAsset").value = ex.required.asset;
@@ -749,25 +1035,54 @@
       };
     }
 
-    function renderResponse(data, httpStatus) {
-      $("rawOut").textContent = JSON.stringify(data, null, 2);
+    function redactJSON(data) {
+      const show = $("showCalldata").checked;
+      if (show) return data;
+      try {
+        const clone = JSON.parse(JSON.stringify(data));
+        const steps = clone.plan && clone.plan.steps;
+        if (Array.isArray(steps)) {
+          for (const s of steps) {
+            if (!Array.isArray(s.prepare_calls)) continue;
+            for (const c of s.prepare_calls) {
+              if (c && c.data != null && c.data !== "") {
+                c.data = "[redacted]";
+              }
+            }
+          }
+        }
+        return clone;
+      } catch {
+        return data;
+      }
+    }
+
+    function explorerLink(txHash, chainHint) {
+      const h = String(txHash || "");
+      if (!h.startsWith("0x")) return esc(h);
+      let base = null;
+      if (chainHint && EXPLORERS[chainHint]) base = EXPLORERS[chainHint];
+      if (!base) {
+        // Prefer Base Sepolia as default testnet explorer when chain unknown
+        base = EXPLORERS["eip155:84532"];
+      }
+      if (!base) return `<code>${esc(h)}</code>`;
+      return `<a class="explorer" href="${esc(base + h)}" target="_blank" rel="noopener">${esc(h.slice(0, 10))}…</a>`;
+    }
+
+    function renderPlanActivity(data, httpStatus, path) {
       const plan = data.plan || {};
-      const err = data.error;
+      const err = data.error || data.code ? (data.error || data) : null;
+      const apiErr = data.error || (data.code && data.message ? data : null);
       const req = plan.required || {};
       const pills = [];
       if (httpStatus) pills.push(`<span class="pill">HTTP ${httpStatus}</span>`);
       if (plan.action) pills.push(`<span class="pill action">action=${esc(plan.action)}</span>`);
       if (plan.dry_run) pills.push(`<span class="pill ok">dry_run</span>`);
       if (plan.executed === false) pills.push(`<span class="pill">executed=false</span>`);
+      if (plan.inventory_asserted) pills.push(`<span class="pill">inventory_asserted</span>`);
       if (plan.inventory_unverified) pills.push(`<span class="pill">inventory_unverified</span>`);
       if (req.scale_factor) pills.push(`<span class="pill scale">scale=${esc(req.scale_factor)}</span>`);
-      if (req.amount_logical_atomic) {
-        try {
-          pills.push(`<span class="pill scale">logical=${esc(atomicToHuman(req.amount_logical_atomic))} USDC</span>`);
-        } catch {
-          pills.push(`<span class="pill scale">logical=${esc(req.amount_logical_atomic)}</span>`);
-        }
-      }
       if (req.amount_atomic) {
         try {
           pills.push(`<span class="pill">real=${esc(atomicToHuman(req.amount_atomic))} USDC</span>`);
@@ -778,48 +1093,56 @@
       if (data.receipt && data.receipt.tx_hashes && data.receipt.tx_hashes.length) {
         pills.push(`<span class="pill ok">tx_hashes=${data.receipt.tx_hashes.length}</span>`);
       }
-      if (err) pills.push(`<span class="pill err">${esc(err.code || "error")}: ${esc(err.message || "")}</span>`);
+      if (apiErr && (apiErr.code || apiErr.message)) {
+        pills.push(`<span class="pill err">${esc(apiErr.code || "error")}: ${esc(apiErr.message || "")}</span>`);
+      }
       if (plan.reason) pills.push(`<span class="pill">${esc(plan.reason)}</span>`);
       $("summary").innerHTML = `<div class="pill-row">${pills.join("") || '<span class="muted">No plan envelope</span>'}</div>`;
 
-      const stepsEl = $("steps");
-      stepsEl.innerHTML = "";
+      pushActivity("request", `<code>${esc(path)}</code> → HTTP ${httpStatus}`, apiErr ? "err" : "ok");
+
       const steps = plan.steps || [];
-      if (!steps.length) {
-        stepsEl.innerHTML = `<div class="muted">${plan.action ? "No steps (e.g. noop / insufficient)." : ""}</div>`;
-        return;
-      }
       steps.forEach((s, i) => {
-        const div = document.createElement("div");
-        div.className = "step";
-        const prep = (s.prepare_calls || []).length
-          ? `<div class="muted" style="margin-top:6px">${s.prepare_calls.length} prepare_call(s)${s.prepare_calls.map((c) => c.method).filter(Boolean).length ? ": " + s.prepare_calls.map((c) => c.method).join(" → ") : ""}</div>`
-          : "";
         let amtLabel = "";
         if (s.amount_atomic) {
-          try {
-            amtLabel = ` · ${esc(atomicToHuman(s.amount_atomic))} USDC`;
-          } catch {
-            amtLabel = ` · ${esc(s.amount_atomic)} atomic`;
-          }
+          try { amtLabel = `${esc(atomicToHuman(s.amount_atomic))} USDC`; }
+          catch { amtLabel = `${esc(s.amount_atomic)} atomic`; }
         }
-        const logical = s.amount_logical_atomic
-          ? (() => {
-              try { return ` · logical ${esc(atomicToHuman(s.amount_logical_atomic))} USDC`; }
-              catch { return ` · logical ${esc(s.amount_logical_atomic)}`; }
-            })()
-          : "";
-        div.innerHTML = `
-          <div><strong>#${i + 1}</strong> <code>${esc(s.kind || "")}</code>${amtLabel}${logical}
-          </div>
-          <div class="muted" style="margin-top:4px">
-            ${s.from_chain_caip2 ? esc(s.from_chain_caip2) : "—"}
-            → ${s.to_chain_caip2 ? esc(s.to_chain_caip2) : "—"}
-            ${s.recipient_role ? ` · ${esc(s.recipient_role)}` : ""}
-            ${s.recipient ? ` · ${esc(s.recipient)}` : ""}
-          </div>${prep}`;
-        stepsEl.appendChild(div);
+        const from = s.from_chain_caip2 || "—";
+        const to = s.to_chain_caip2 || "—";
+        let nested = "";
+        const preps = s.prepare_calls || [];
+        if (preps.length) {
+          nested = `<div class="tl-nested">` + preps.map((c) => {
+            const method = esc(c.method || "call");
+            const detail = $("showCalldata").checked && c.data
+              ? `<details><summary>calldata</summary><code style="word-break:break-all">${esc(c.data)}</code></details>`
+              : `<span class="muted">${c.data ? "calldata redacted" : ""}</span>`;
+            return `<div>${method}${c.description ? " · " + esc(c.description) : ""} ${detail}</div>`;
+          }).join("") + `</div>`;
+        }
+        pushActivity(
+          `step #${i + 1}`,
+          `<code>${esc(s.kind || "")}</code>${amtLabel ? " · " + amtLabel : ""}` +
+          `<div class="muted" style="margin-top:4px">${esc(from)} → ${esc(to)}` +
+          `${s.recipient_role ? " · " + esc(s.recipient_role) : ""}` +
+          `${s.recipient ? " · " + esc(s.recipient) : ""}</div>${nested}`
+        );
       });
+
+      if (data.receipt && Array.isArray(data.receipt.tx_hashes)) {
+        const dest = (plan.required && plan.required.chain_caip2) || "";
+        data.receipt.tx_hashes.forEach((h, i) => {
+          pushActivity("receipt", `tx_hash[${i}] ${explorerLink(h, dest)}`, "ok");
+        });
+      }
+    }
+
+    let lastResponse = {};
+
+    function setRawOut(data) {
+      lastResponse = data;
+      $("rawOut").textContent = JSON.stringify(redactJSON(data), null, 2);
     }
 
     function esc(s) {
@@ -828,6 +1151,61 @@
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;");
+    }
+
+    async function loadLiveInventory() {
+      const btn = $("loadInventoryBtn");
+      btn.disabled = true;
+      const agent = $("agentAddress").value.trim();
+      pushActivity("inventory", "POST /v1/inventory");
+      try {
+        if (!agent) throw new Error("agent_address required");
+        const r = await fetch(API + "/v1/inventory", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ agent_address: agent }),
+        });
+        let data;
+        try { data = await r.json(); }
+        catch { data = { code: "client", message: "non-JSON response" }; }
+        setRawOut(data);
+
+        if (!r.ok) {
+          const code = data.code || (data.error && data.error.code) || "error";
+          const msg = data.message || (data.error && data.error.message) || `HTTP ${r.status}`;
+          pushActivity("inventory", `fail HTTP ${r.status}: ${esc(code)} — ${esc(msg)}`, "err");
+          $("summary").innerHTML = `<div class="pill-row"><span class="pill err">${esc(code)}: ${esc(msg)}</span></div>`;
+          return;
+        }
+
+        // Success: bare Inventory — REPLACE balance rows (no synthetic amount_atomic 0)
+        const bals = Array.isArray(data.balances) ? data.balances : [];
+        liveHadGatewayRows = bals.some((b) => b.location === "circle_gateway");
+        liveLoadedOnce = true;
+        const rows = bals.map((b) => ({
+          location: b.location || "native",
+          chain_caip2: b.chain_caip2 || "",
+          asset: b.asset || "",
+          amount_atomic: b.amount_atomic,
+        }));
+        setBalances(rows);
+        if (data.agent_address) $("agentAddress").value = data.agent_address;
+        setMode("live");
+        updateHeroFromBalances();
+        pushActivity("inventory", `ok HTTP 200 · ${rows.length} balance row(s)` +
+          (liveHadGatewayRows ? "" : " · Gateway optional / may be incomplete"), "ok");
+        $("summary").innerHTML = `<div class="pill-row">
+          <span class="pill ok">Live-loaded</span>
+          <span class="pill">${rows.length} row(s)</span>
+          ${!liveHadGatewayRows ? '<span class="pill scale">Gateway optional / may be incomplete</span>' : ""}
+          <span class="pill">plans still inventory_unverified</span>
+        </div>`;
+      } catch (e) {
+        pushActivity("inventory", esc(String(e.message || e)), "err");
+        $("summary").innerHTML = `<div class="pill-row"><span class="pill err">${esc(String(e.message || e))}</span></div>`;
+      } finally {
+        btn.disabled = false;
+      }
     }
 
     async function submit() {
@@ -845,6 +1223,7 @@
           path = "/v1/plan";
           body = buildPlanBody();
         }
+        pushActivity("request", `POST ${esc(path)}…`);
         const r = await fetch(API + path, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -853,9 +1232,13 @@
         let data;
         try { data = await r.json(); }
         catch { data = { error: { code: "client", message: "non-JSON response" } }; }
-        renderResponse(data, r.status);
+        setRawOut(data);
+        renderPlanActivity(data, r.status, path);
       } catch (e) {
-        renderResponse({ error: { code: "client", message: String(e.message || e) } }, 0);
+        const errBody = { error: { code: "client", message: String(e.message || e) } };
+        setRawOut(errBody);
+        pushActivity("request", esc(String(e.message || e)), "err");
+        $("summary").innerHTML = `<div class="pill-row"><span class="pill err">${esc(String(e.message || e))}</span></div>`;
       } finally {
         btn.disabled = false;
       }
@@ -905,7 +1288,7 @@
         show("sectionOrch", false);
         show("loadFragmented", false);
         $("loadExample").classList.remove("hidden");
-        $("balancesHint").textContent = "Assert native balances ≥ hard-coded source reals (sync button fills from sources).";
+        $("balancesHint").textContent = "Assert native balances ≥ hard-coded source reals (sync button fills from sources). Live load replaces rows.";
       } else if (name === "plan") {
         $("formTitle").textContent = "POST /v1/plan (shortfall-only)";
         $("submitBtn").textContent = "Run plan";
@@ -915,7 +1298,7 @@
         show("sectionOrch", true);
         show("loadFragmented", true);
         $("loadExample").classList.remove("hidden");
-        $("balancesHint").textContent = "Client-asserted inventory for shortfall rebalance (gateway + native).";
+        $("balancesHint").textContent = "Inventory for shortfall rebalance (circle_gateway + native). Edit after live load → Hybrid.";
       } else if (name === "consolidate") {
         $("formTitle").textContent = "POST /v1/consolidate";
         $("submitBtn").textContent = "Run consolidate";
@@ -937,8 +1320,19 @@
     document.querySelectorAll(".tab").forEach((t) => {
       t.addEventListener("click", () => setTab(t.dataset.tab));
     });
-    $("addBalance").onclick = () => $("balancesBody").appendChild(balanceRow());
+    $("addBalance").onclick = () => {
+      $("balancesBody").appendChild(balanceRow());
+      markHybridIfNeeded();
+    };
     $("submitBtn").onclick = submit;
+    $("loadInventoryBtn").onclick = loadLiveInventory;
+    $("clearTimeline").onclick = () => {
+      activity = [];
+      renderTimeline();
+    };
+    $("showCalldata").addEventListener("change", () => {
+      $("rawOut").textContent = JSON.stringify(redactJSON(lastResponse), null, 2);
+    });
     $("loadExample").onclick = () => {
       if (activeTab === "scenario") applyScenarioExample(EXAMPLES.scenario);
       else if (activeTab === "consolidate") applyExample(EXAMPLES.consolidate, true);
@@ -962,6 +1356,8 @@
     $("apiBaseLabel").textContent = location.origin || "same origin";
     applyScenarioExample(EXAMPLES.scenario);
     setTab("scenario");
+    setMode("asserted");
+    renderTimeline();
     pingHealth();
     loadChains().catch(() => {});
     setInterval(pingHealth, 15000);

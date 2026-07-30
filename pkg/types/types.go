@@ -77,9 +77,15 @@ type PlanStep struct {
 }
 
 // Inventory is client-asserted balances (never server-custodied product funds).
+// Live load via POST /v1/inventory still stamps inventory_unverified on plans.
 type Inventory struct {
 	AgentAddress string    `json:"agent_address"`
 	Balances     []Balance `json:"balances"`
+}
+
+// InventoryRequest is POST /v1/inventory input (agent only; never invent from env/key).
+type InventoryRequest struct {
+	AgentAddress string `json:"agent_address"`
 }
 
 // Balance is one inventory row (native wallet or circle_gateway unified balance).

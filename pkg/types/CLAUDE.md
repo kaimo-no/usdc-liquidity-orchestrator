@@ -10,9 +10,10 @@ Agent-facing wire shapes for plan I/O (JSON tags only).
 - `Fee` — optional kaimo orchestration fee (x402 settle; not fund-rail dest)
 - `Plan` / `PlanStep` — dry/execute plan envelope
 - `PrepareCall` — unsigned EVM call on deposit steps (`prepare_calls`)
-- `Inventory` / `Balance` — client-asserted balances
+- `Inventory` / `Balance` — client-asserted balances (also bare success body for `POST /v1/inventory`)
+- `InventoryRequest` — `POST /v1/inventory` input (`agent_address` only)
 - `PlanRequest` / `ConsolidateRequest` / `PaymentFundingRequest` / `FundingSource` — HTTP inputs
-- `PlanResponse` / `APIError` / `ExecuteReceipt` — HTTP outputs
+- `PlanResponse` / `APIError` / `ExecuteReceipt` — HTTP outputs (`APIError` is also bare error body for inventory)
 - `ExecuteReceipt` — optional `tx_hashes` on successful/partial execute (no notes on wire)
 - `ChainInfo` / `ChainsResponse` — `GET /v1/chains` discovery (`testnet`, `gateway_wallet`)
 

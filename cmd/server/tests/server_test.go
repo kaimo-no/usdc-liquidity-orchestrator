@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -71,6 +72,15 @@ func TestGETUI_IndexHTML(t *testing.T) {
 	assert.Contains(t, body, "/v1/plan")
 	assert.Contains(t, body, "/v1/payment-funding")
 	assert.Contains(t, body, "Scale factor")
+	// MVP UI polish markers
+	assert.Contains(t, body, "/v1/inventory")
+	assert.Contains(t, body, "Load live inventory")
+	assert.Contains(t, body, "Circle Gateway")
+	assert.Contains(t, body, "Activity timeline")
+	assert.NotContains(t, body, "localStorage.")
+	assert.NotContains(t, body, "sessionStorage.")
+	assert.NotContains(t, body, "localStorage[")
+	assert.NotContains(t, body, "sessionStorage[")
 }
 
 func TestPOSTPaymentFunding_ScenarioDry(t *testing.T) {
@@ -400,6 +410,146 @@ func TestGETChains_TestnetAndGatewayWallet(t *testing.T) {
 	require.NotNil(t, base)
 	assert.False(t, base.Testnet)
 	assert.Equal(t, "0x77777777Dcc4d5A8B6E418Fd04D8997ef11000eE", base.GatewayWallet)
+}
+
+func TestPOSTInventory_NilLoader_503BareAPIError(t *testing.T) {
+	mux := httpserver.NewMux() // LoadInventory nil
+	payload, _ := json.Marshal(map[string]string{"agent_address": agentAddr})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/inventory", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	assert.Equal(t, "no-store", rec.Header().Get("Cache-Control"))
+	var api types.APIError
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &api))
+	assert.Equal(t, liqerr.CodeLiquidityRailUnavailable, api.Code)
+	assert.NotEmpty(t, api.Message)
+	// bare APIError — not PlanResponse
+	var raw map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	_, hasPlan := raw["plan"]
+	assert.False(t, hasPlan)
+}
+
+func TestPOSTInventory_InjectSuccess_200NoStore(t *testing.T) {
+	var calledWith string
+	mux := httpserver.NewMuxWithOptions(httpserver.MuxOptions{
+		LoadInventory: func(ctx context.Context, agent string) (liquidity.Inventory, error) {
+			calledWith = agent
+			return liquidity.Inventory{
+				AgentAddress: agent,
+				Balances: []liquidity.Balance{{
+					ChainCAIP2:   baseSepCAIP2,
+					Asset:        baseSepUSDC,
+					AmountAtomic: decimal.RequireFromString("1000000"),
+					Location:     liquidity.LocationNative,
+				}},
+			}, nil
+		},
+	})
+	payload, _ := json.Marshal(map[string]string{"agent_address": agentAddr})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/inventory", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "no-store", rec.Header().Get("Cache-Control"))
+	assert.Equal(t, agentAddr, calledWith)
+	var inv types.Inventory
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &inv))
+	assert.Equal(t, agentAddr, inv.AgentAddress)
+	require.Len(t, inv.Balances, 1)
+	assert.Equal(t, "1000000", inv.Balances[0].AmountAtomic)
+	assert.Equal(t, liquidity.LocationNative, inv.Balances[0].Location)
+}
+
+func TestPOSTInventory_InjectFail_503BareAPIError(t *testing.T) {
+	mux := httpserver.NewMuxWithOptions(httpserver.MuxOptions{
+		LoadInventory: func(ctx context.Context, agent string) (liquidity.Inventory, error) {
+			return liquidity.Inventory{}, liqerr.New(liqerr.CodeLiquidityRailUnavailable,
+				"inventory: balanceOf call failed")
+		},
+	})
+	payload, _ := json.Marshal(map[string]string{"agent_address": agentAddr})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/inventory", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	assert.Equal(t, "no-store", rec.Header().Get("Cache-Control"))
+	var api types.APIError
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &api))
+	assert.Equal(t, liqerr.CodeLiquidityRailUnavailable, api.Code)
+	assert.Equal(t, "inventory: balanceOf call failed", api.Message)
+	var raw map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	_, hasPlan := raw["plan"]
+	assert.False(t, hasPlan)
+}
+
+func TestPOSTInventory_InvalidJSON_400(t *testing.T) {
+	mux := httpserver.NewMuxWithOptions(httpserver.MuxOptions{
+		LoadInventory: func(ctx context.Context, agent string) (liquidity.Inventory, error) {
+			t.Fatal("LoadInventory must not run on invalid JSON")
+			return liquidity.Inventory{}, nil
+		},
+	})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/inventory", bytes.NewReader([]byte(`{not json`)))
+	req.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, "no-store", rec.Header().Get("Cache-Control"))
+	var api types.APIError
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &api))
+	assert.Equal(t, liqerr.CodeInvalidQuery, api.Code)
+}
+
+func TestPOSTInventory_EmptyAgent_400(t *testing.T) {
+	mux := httpserver.NewMuxWithOptions(httpserver.MuxOptions{
+		LoadInventory: func(ctx context.Context, agent string) (liquidity.Inventory, error) {
+			t.Fatal("LoadInventory must not run on empty agent")
+			return liquidity.Inventory{}, nil
+		},
+	})
+	payload, _ := json.Marshal(map[string]string{"agent_address": "  "})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/inventory", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	var api types.APIError
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &api))
+	assert.Equal(t, liqerr.CodeInvalidQuery, api.Code)
+}
+
+func TestPOSTPlan_DoesNotInvokeLoadInventory(t *testing.T) {
+	loadCalls := 0
+	mux := httpserver.NewMuxWithOptions(httpserver.MuxOptions{
+		LoadInventory: func(ctx context.Context, agent string) (liquidity.Inventory, error) {
+			loadCalls++
+			return liquidity.Inventory{}, nil
+		},
+	})
+	payload := planBody(false, merchantPayTo, true)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/plan", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, 0, loadCalls)
+	var resp types.PlanResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.True(t, resp.Plan.InventoryAsserted)
+	assert.True(t, resp.Plan.InventoryUnverified)
+	assert.True(t, resp.Plan.DryRun)
 }
 
 func planBody(execute bool, payTo string, withGateway bool) []byte {

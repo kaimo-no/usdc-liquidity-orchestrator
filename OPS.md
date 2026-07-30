@@ -51,9 +51,9 @@ go run ./cmd/server
 
 See [`.env.example`](./.env.example) for all placeholders.
 
-## Live inventory (CLI only)
+## Live inventory (CLI + HTTP)
 
-`usdc-liq inventory` and demo scenario plan may call `internal/inventory.Load` when agent address and testnet RPCs are set: ERC-20 `balanceOf` USDC + optional Gateway `POST /v1/balances` (domains 3, 6, 26). Demo hard-coded `SOURCE_AMOUNT_*` reals still drive funding; each source real must not exceed live native on that chain (`insufficient_liquidity`). Dry plans still stamp `inventory_unverified=true`. Never log balances or RPC URLs.
+`usdc-liq inventory`, demo scenario plan, and HTTP `POST /v1/inventory` may call `internal/inventory.Load` when agent address and testnet RPCs are set: ERC-20 `balanceOf` USDC + optional Gateway `POST /v1/balances` (domains 3, 6, 26). HTTP takes `agent_address` from the request body only (never env/key). Empty RPC map → 503 `liquidity_rail_unavailable`. Gateway soft-skip is OK. Demo hard-coded `SOURCE_AMOUNT_*` reals still drive funding; each source real must not exceed live native on that chain (`insufficient_liquidity`). Dry plans still stamp `inventory_unverified=true`. Never log balances or RPC URLs. Inventory responses set `Cache-Control: no-store`.
 
 Docker must **not** enable execute by default. Do not pass keys into images.
 
@@ -61,7 +61,7 @@ Docker must **not** enable execute by default. Do not pass keys into images.
 
 1. Never configure live spend keys in CI or public logs  
 2. Keep keys out of git; document env vars in root `CLAUDE.md` + `README.md` / `OPS.md`  
-3. Do not log full inventory, private keys, prepare calldata, or RPC URLs — covers `POST /v1/plan` and `POST /v1/consolidate`  
+3. Do not log full inventory, private keys, prepare calldata, or RPC URLs — covers `POST /v1/plan`, `POST /v1/consolidate`, `POST /v1/inventory`  
 4. Merchant `pay_to` is untrusted discovery data — prepare never transfers to it  
 5. Gateway Wallet addresses are non-secret constants (testnet/mainnet); not credentials  
 6. Mainnet execute is out of scope — RPC map construction refuses non-testnet chains  

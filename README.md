@@ -66,10 +66,11 @@ Product skill for agents: [`skills/usdc-liquidity/`](./skills/usdc-liquidity/).
 
 ### HTTP
 
-`GET /` — MVP UI (scenario full-funding, shortfall plan, consolidate, chains)  
+`GET /` — MVP UI (Gateway hero, Live/Asserted/Hybrid inventory, scenario / shortfall plan / consolidate / chains)  
 `POST /v1/payment-funding` — scenario full hard-coded multi-source deposits + withdraw (scale stamps)  
 `POST /v1/plan` — shortfall-only rebalance ([`examples/plan.json`](./examples/plan.json))  
 `POST /v1/consolidate` — full-balance Gateway deposits + unsigned `prepare_calls` ([`examples/consolidate-testnet.json`](./examples/consolidate-testnet.json))  
+`POST /v1/inventory` — request-scoped live balances (`{"agent_address"}`; bare Inventory; `Cache-Control: no-store`)  
 `GET /v1/chains` — registered corridors (CAIP-2, USDC, Gateway domain, testnet, gateway_wallet)  
 `GET /healthz`
 

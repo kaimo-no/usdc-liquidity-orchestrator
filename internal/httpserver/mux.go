@@ -3,11 +3,14 @@
 package httpserver
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
+	"errors"
 	"io/fs"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/kaimo-no/usdc-liquidity-orchestrator/internal/planio"
@@ -19,10 +22,13 @@ import (
 //go:embed static/*
 var staticEmbed embed.FS
 
-// MuxOptions configures optional execute wiring. Zero value is plan-only default.
+// MuxOptions configures optional execute and inventory wiring. Zero value is plan-only.
 type MuxOptions struct {
 	// Executor runs plans when request execute=true. Nil → UnconfiguredExecutor.
 	Executor liquidity.Executor
+	// LoadInventory loads request-scoped live balances for POST /v1/inventory.
+	// Nil → 503 liquidity_rail_unavailable (no network). Plan path never calls this.
+	LoadInventory func(ctx context.Context, agentAddress string) (liquidity.Inventory, error)
 }
 
 // NewMux returns the service routes (plan-only default: UnconfiguredExecutor).
@@ -31,13 +37,13 @@ func NewMux() http.Handler {
 	return NewMuxWithOptions(MuxOptions{})
 }
 
-// NewMuxWithOptions returns routes with an optional live Executor.
+// NewMuxWithOptions returns routes with optional live Executor and inventory loader.
 func NewMuxWithOptions(opts MuxOptions) http.Handler {
 	ex := opts.Executor
 	if ex == nil {
 		ex = liquidity.UnconfiguredExecutor{}
 	}
-	s := &server{ex: ex}
+	s := &server{ex: ex, loadInventory: opts.LoadInventory}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -48,6 +54,7 @@ func NewMuxWithOptions(opts MuxOptions) http.Handler {
 	mux.HandleFunc("POST /v1/plan", s.handlePlan)
 	mux.HandleFunc("POST /v1/consolidate", s.handleConsolidate)
 	mux.HandleFunc("POST /v1/payment-funding", s.handlePaymentFunding)
+	mux.HandleFunc("POST /v1/inventory", s.handleInventory)
 
 	staticRoot, err := fs.Sub(staticEmbed, "static")
 	if err != nil {
@@ -58,10 +65,11 @@ func NewMuxWithOptions(opts MuxOptions) http.Handler {
 }
 
 type server struct {
-	ex liquidity.Executor
+	ex            liquidity.Executor
+	loadInventory func(ctx context.Context, agentAddress string) (liquidity.Inventory, error)
 }
 
-// LogRequests wraps next without logging request bodies (wallet inventory).
+// LogRequests wraps next logging method + path only (never query, body, agent, balances).
 func LogRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -102,6 +110,66 @@ func (s *server) handlePaymentFunding(w http.ResponseWriter, r *http.Request) {
 	}
 	resp, outcome := planio.RunPaymentFunding(r.Context(), s.ex, req)
 	writeJSON(w, planio.HTTPStatus(outcome), resp)
+}
+
+func (s *server) handleInventory(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+
+	var req types.InventoryRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
+		writeAPIErr(w, http.StatusBadRequest, liqerr.CodeInvalidQuery, "invalid JSON body")
+		return
+	}
+	agent := strings.TrimSpace(req.AgentAddress)
+	if agent == "" {
+		writeAPIErr(w, http.StatusBadRequest, liqerr.CodeInvalidQuery, "agent_address required")
+		return
+	}
+	if s.loadInventory == nil {
+		writeAPIErr(w, http.StatusServiceUnavailable, liqerr.CodeLiquidityRailUnavailable,
+			"inventory load unavailable")
+		return
+	}
+
+	inv, err := s.loadInventory(r.Context(), agent)
+	if err != nil {
+		code, msg, status := inventoryAPIError(err)
+		writeAPIErr(w, status, code, msg)
+		return
+	}
+	writeJSON(w, http.StatusOK, liquidity.InventoryToWire(inv))
+}
+
+// inventoryAPIError maps load errors to bare APIError fields + HTTP status.
+// invalid_query → 400; rail/other → 503. Messages are sanitized (no RPC/body).
+func inventoryAPIError(err error) (code, msg string, status int) {
+	var e *liqerr.Error
+	if errors.As(err, &e) && e != nil {
+		code = e.Code
+		msg = e.Message
+	} else {
+		code = liqerr.CodeOf(err)
+		msg = "inventory load failed"
+	}
+	if code == "" {
+		code = liqerr.CodeLiquidityRailUnavailable
+	}
+	if msg == "" {
+		msg = "inventory load failed"
+	}
+	if code == liqerr.CodeInvalidQuery {
+		return code, msg, http.StatusBadRequest
+	}
+	if code != liqerr.CodeLiquidityRailUnavailable {
+		code = liqerr.CodeLiquidityRailUnavailable
+	}
+	return code, msg, http.StatusServiceUnavailable
+}
+
+// writeAPIErr writes a bare types.APIError (not PlanResponse) with Cache-Control: no-store.
+func writeAPIErr(w http.ResponseWriter, status int, code, msg string) {
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, status, types.APIError{Code: code, Message: msg})
 }
 
 func writeErr(w http.ResponseWriter, code, msg string) {

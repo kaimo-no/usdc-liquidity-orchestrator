@@ -103,8 +103,9 @@ Configs live in [`.vscode/launch.json`](./.vscode/launch.json). UI amounts are *
 
 Multi-stage image builds a static `cmd/server` binary (distroless, non-root). **Plan-only by default** — no secrets required. The UI supports:
 
-| Tab | Endpoint |
+| Tab / control | Endpoint |
 |---|---|
+| Load live inventory | `POST /v1/inventory` (`{"agent_address"}`; needs testnet RPCs) |
 | Scenario | `POST /v1/payment-funding` (full hard-coded sources + scale) |
 | Plan | `POST /v1/plan` (shortfall-only) |
 | Consolidate | `POST /v1/consolidate` |
