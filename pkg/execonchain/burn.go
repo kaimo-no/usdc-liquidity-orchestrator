@@ -192,6 +192,8 @@ func (e *DepositExecutor) buildBurnIntentMessage(p burnMintParams) (burnIntentMe
 	if maxFee == nil || maxFee.Sign() <= 0 {
 		maxFee = big.NewInt(defaultMaxFeeAtomic)
 	}
+	// Circle rejects burns when maxFee >= value (fee cannot consume the full burn).
+	maxFee = capMaxFee(maxFee, p.ValueAtomic)
 
 	return burnIntentMessage{
 		MaxBlockHeight: maxUint256.String(),
@@ -322,10 +324,15 @@ func (e *DepositExecutor) postTransfer(ctx context.Context, msg burnIntentMessag
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return "", "", liqerr.New(liqerr.CodeLiquidityRailUnavailable,
-			"deposit execute: transfer HTTP %d", resp.StatusCode)
+			"deposit execute: transfer HTTP %d%s", resp.StatusCode, circleAPIErrorSuffix(raw))
 	}
 	var parsed transferResponse
 	if err := json.Unmarshal(raw, &parsed); err != nil {
+		// Circle may return success:false with 200 in some paths; still refuse empty attestation.
+		if suf := circleAPIErrorSuffix(raw); suf != "" {
+			return "", "", liqerr.New(liqerr.CodeLiquidityRailUnavailable,
+				"deposit execute: transfer failed%s", suf)
+		}
 		return "", "", liqerr.New(liqerr.CodeLiquidityRailUnavailable,
 			"deposit execute: transfer response invalid")
 	}
@@ -453,4 +460,250 @@ func maxFeeFromEnv() *big.Int {
 		return big.NewInt(defaultMaxFeeAtomic)
 	}
 	return bi
+}
+
+// capMaxFee ensures maxFee < burn value (atomic USDC). Default 2.01 USDC fee would
+// reject a 1 USDC source burn (common multi-source deposit_withdraw split).
+func capMaxFee(maxFee *big.Int, valueAtomic decimal.Decimal) *big.Int {
+	if maxFee == nil || maxFee.Sign() <= 0 {
+		maxFee = big.NewInt(defaultMaxFeeAtomic)
+	}
+	val, ok := new(big.Int).SetString(valueAtomic.Truncate(0).String(), 10)
+	if !ok || val.Sign() <= 0 {
+		return maxFee
+	}
+	// Leave at least 1 atomic unit of burn value after max fee.
+	if maxFee.Cmp(val) < 0 {
+		return new(big.Int).Set(maxFee)
+	}
+	if val.Cmp(big.NewInt(1)) <= 0 {
+		return big.NewInt(0)
+	}
+	return new(big.Int).Sub(val, big.NewInt(1))
+}
+
+// resolveBurnSources fills empty SourceChainCAIP2 by allocating from live Gateway balances.
+// Explicit sources (deposit_withdraw / from_chain set) pass through unchanged.
+func (e *DepositExecutor) resolveBurnSources(ctx context.Context, params []burnMintParams) ([]burnMintParams, error) {
+	if len(params) == 0 {
+		return params, nil
+	}
+	var out []burnMintParams
+	for _, p := range params {
+		if strings.TrimSpace(p.SourceChainCAIP2) != "" {
+			out = append(out, p)
+			continue
+		}
+		expanded, err := e.allocateBurnsFromGatewayBalances(ctx, p)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, expanded...)
+	}
+	return out, nil
+}
+
+type gatewayBalanceRow struct {
+	Domain  int    `json:"domain"`
+	Balance string `json:"balance"`
+}
+
+type gatewayBalancesAPIResp struct {
+	Balances []gatewayBalanceRow `json:"balances"`
+}
+
+type burnSourceCand struct {
+	caip string
+	amt  decimal.Decimal
+}
+
+// allocateBurnsFromGatewayBalances splits p.ValueAtomic across domains with positive balance.
+// Domains with balance too small to cover Gateway maxFee are skipped (Circle base fee is
+// often ~2 USDC — a 1 USDC domain balance cannot be burned alone).
+func (e *DepositExecutor) allocateBurnsFromGatewayBalances(ctx context.Context, p burnMintParams) ([]burnMintParams, error) {
+	need := p.ValueAtomic.Truncate(0)
+	if !need.IsPositive() {
+		return nil, liqerr.New(liqerr.CodeInvalidQuery,
+			"deposit execute: withdraw amount must be positive")
+	}
+	rows, err := e.fetchGatewayBalances(ctx)
+	if err != nil {
+		return nil, err
+	}
+	feeFloor := e.configuredMaxFeeAtomic()
+	ordered := collectFeeViableBurnSources(rows, p.DestChainCAIP2, feeFloor)
+	out, left := pickBurnsFromSources(ordered, need, p, feeFloor)
+	if left.IsPositive() {
+		return nil, liqerr.New(liqerr.CodeInsufficientLiquidity,
+			"deposit execute: gateway balance insufficient for withdraw (need %s atomic; domains below fee floor ~%s atomic skipped)",
+			need.String(), feeFloor.String())
+	}
+	if len(out) == 0 {
+		return nil, liqerr.New(liqerr.CodeInsufficientLiquidity,
+			"deposit execute: no gateway domain has balance above fee floor (~%s atomic USDC)",
+			feeFloor.String())
+	}
+	return out, nil
+}
+
+func collectFeeViableBurnSources(rows []gatewayBalanceRow, destCAIP2 string, feeFloor *big.Int) []burnSourceCand {
+	destInfo, destOK := liquidity.LookupChain(destCAIP2)
+	floorDec := decimal.NewFromBigInt(feeFloor, 0)
+	var preferred, sameDomain []burnSourceCand
+	for _, row := range rows {
+		amt, err := humanUSDCToAtomic(row.Balance)
+		if err != nil || !amt.IsPositive() || !amt.GreaterThan(floorDec) {
+			continue
+		}
+		caip, ok := testnetCAIP2ForGatewayDomain(row.Domain)
+		if !ok || !liquidity.IsTestnetExecutableChain(caip) {
+			continue
+		}
+		c := burnSourceCand{caip: caip, amt: amt}
+		if destOK && row.Domain == destInfo.GatewayDomain {
+			sameDomain = append(sameDomain, c)
+		} else {
+			preferred = append(preferred, c)
+		}
+	}
+	sortBurnCandsByAmtDesc(preferred)
+	sortBurnCandsByAmtDesc(sameDomain)
+	return append(preferred, sameDomain...)
+}
+
+func sortBurnCandsByAmtDesc(cs []burnSourceCand) {
+	for i := 0; i < len(cs); i++ {
+		for j := i + 1; j < len(cs); j++ {
+			if cs[j].amt.GreaterThan(cs[i].amt) {
+				cs[i], cs[j] = cs[j], cs[i]
+			}
+		}
+	}
+}
+
+func pickBurnsFromSources(ordered []burnSourceCand, need decimal.Decimal, p burnMintParams, feeFloor *big.Int) ([]burnMintParams, decimal.Decimal) {
+	floorDec := decimal.NewFromBigInt(feeFloor, 0)
+	var out []burnMintParams
+	left := need
+	for _, c := range ordered {
+		if !left.IsPositive() {
+			break
+		}
+		take := c.amt
+		if take.GreaterThan(left) {
+			take = left
+		}
+		if !take.GreaterThan(floorDec) {
+			continue
+		}
+		out = append(out, burnMintParams{
+			SourceChainCAIP2: c.caip,
+			DestChainCAIP2:   p.DestChainCAIP2,
+			ValueAtomic:      take,
+			Recipient:        p.Recipient,
+		})
+		left = left.Sub(take)
+	}
+	return out, left
+}
+
+func (e *DepositExecutor) configuredMaxFeeAtomic() *big.Int {
+	maxFee := e.maxFeeAtomic
+	if maxFee == nil || maxFee.Sign() <= 0 {
+		return big.NewInt(defaultMaxFeeAtomic)
+	}
+	return new(big.Int).Set(maxFee)
+}
+
+// circleAPIErrorSuffix extracts a short, non-sensitive Circle JSON "message" if present.
+func circleAPIErrorSuffix(raw []byte) string {
+	var wrap struct {
+		Message string `json:"message"`
+		Success *bool  `json:"success"`
+	}
+	if err := json.Unmarshal(raw, &wrap); err != nil || strings.TrimSpace(wrap.Message) == "" {
+		return ""
+	}
+	msg := strings.TrimSpace(wrap.Message)
+	// Bound length; drop unlikely secret-looking long hex blobs.
+	if len(msg) > 240 {
+		msg = msg[:240] + "…"
+	}
+	if strings.Count(msg, "0x") > 3 {
+		return ""
+	}
+	return ": " + msg
+}
+
+func (e *DepositExecutor) fetchGatewayBalances(ctx context.Context) ([]gatewayBalanceRow, error) {
+	// Query all registered GatewayOK testnet domains for this agent.
+	type src struct {
+		Domain    int    `json:"domain"`
+		Depositor string `json:"depositor"`
+	}
+	var sources []src
+	seen := map[int]bool{}
+	for _, c := range liquidity.ListChains() {
+		if !c.Testnet || !c.GatewayOK || seen[c.GatewayDomain] {
+			continue
+		}
+		seen[c.GatewayDomain] = true
+		sources = append(sources, src{Domain: c.GatewayDomain, Depositor: e.addr.Hex()})
+	}
+	if len(sources) == 0 {
+		return nil, liqerr.New(liqerr.CodeLiquidityRailUnavailable,
+			"deposit execute: no testnet gateway domains registered")
+	}
+	body, err := json.Marshal(map[string]any{"token": "USDC", "sources": sources})
+	if err != nil {
+		return nil, liqerr.New(liqerr.CodeInvalidQuery, "deposit execute: balances encode failed")
+	}
+	base := strings.TrimRight(e.gatewayAPI, "/")
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/v1/balances", bytes.NewReader(body))
+	if err != nil {
+		return nil, liqerr.New(liqerr.CodeLiquidityRailUnavailable,
+			"deposit execute: balances request failed")
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := e.httpDo(req)
+	if err != nil {
+		return nil, liqerr.New(liqerr.CodeLiquidityRailUnavailable,
+			"deposit execute: balances request failed")
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, liqerr.New(liqerr.CodeLiquidityRailUnavailable,
+			"deposit execute: balances HTTP %d", resp.StatusCode)
+	}
+	var parsed gatewayBalancesAPIResp
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		return nil, liqerr.New(liqerr.CodeLiquidityRailUnavailable,
+			"deposit execute: balances response invalid")
+	}
+	return parsed.Balances, nil
+}
+
+func humanUSDCToAtomic(s string) (decimal.Decimal, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return decimal.Zero, fmt.Errorf("empty")
+	}
+	d, err := decimal.NewFromString(s)
+	if err != nil {
+		return decimal.Zero, err
+	}
+	if d.IsNegative() {
+		return decimal.Zero, fmt.Errorf("negative")
+	}
+	return d.Mul(decimal.NewFromInt(1_000_000)).Truncate(0), nil
+}
+
+func testnetCAIP2ForGatewayDomain(domain int) (string, bool) {
+	for _, c := range liquidity.ListChains() {
+		if c.GatewayDomain == domain && c.Testnet && c.GatewayOK {
+			return c.CAIP2, true
+		}
+	}
+	return "", false
 }

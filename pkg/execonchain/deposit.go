@@ -219,6 +219,12 @@ func (e *DepositExecutor) Execute(ctx context.Context, p liquidity.Plan) (liquid
 	if err != nil {
 		return liquidity.Receipt{TxHashes: hashes}, err
 	}
+	// Withdraw-only plans omit from_chain; resolve burn sources from live Gateway balances
+	// (unified inventory may cover shortfall while USDC sits on other domains).
+	burnParams, err = e.resolveBurnSources(ctx, burnParams)
+	if err != nil {
+		return liquidity.Receipt{TxHashes: hashes}, err
+	}
 	mintHashes, err := e.executeBurnAndMint(ctx, burnParams, clients, verified)
 	hashes = append(hashes, mintHashes...)
 	if err != nil {
@@ -334,16 +340,13 @@ func burnParamsFromPlan(
 		return out, nil
 	}
 
-	// Withdraw-only: one burn per withdraw step.
-	// Source domain: FromChainCAIP2 if set, else same-domain as dest (Gateway same-chain withdraw).
+	// Withdraw-only: one logical withdraw step. Empty FromChainCAIP2 is resolved later
+	// via Gateway /v1/balances (do not assume same-domain as dest — shortfall plans often
+	// mint to dest while balance lives on other Gateway domains).
 	out := make([]burnMintParams, 0, len(withdraws))
 	for _, w := range withdraws {
-		src := strings.TrimSpace(w.FromChainCAIP2)
-		if src == "" {
-			src = w.ToChainCAIP2
-		}
 		out = append(out, burnMintParams{
-			SourceChainCAIP2: src,
+			SourceChainCAIP2: strings.TrimSpace(w.FromChainCAIP2),
 			DestChainCAIP2:   w.ToChainCAIP2,
 			ValueAtomic:      w.AmountAtomic,
 			Recipient:        agent,

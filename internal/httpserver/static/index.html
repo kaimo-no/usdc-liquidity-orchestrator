@@ -216,6 +216,7 @@
       <strong>Non-custodial.</strong>
       Fund rails always land on <code>agent_self</code> — merchant <code>pay_to</code> is claim metadata only (never a mint/bridge dest).
       Inventory is client-asserted (<code>inventory_unverified</code>). Never paste private keys into this UI.
+      Amounts in this UI are <strong>human USDC</strong> (e.g. <code>40</code>), not atomic — the browser multiplies by 10^6 for the API.
       <br /><br />
       <strong>Scenario</strong> = full hard-coded multi-source funding (scale + sources sum = payment) via <code>POST /v1/payment-funding</code>.
       <strong>Plan</strong> = classic shortfall rebalance via <code>POST /v1/plan</code>.
@@ -248,7 +249,7 @@
                     <th>Location</th>
                     <th>Chain CAIP-2</th>
                     <th>Asset</th>
-                    <th>Amount (atomic)</th>
+                    <th>Amount (USDC)</th>
                     <th></th>
                   </tr>
                 </thead>
@@ -263,7 +264,7 @@
 
         <div id="sectionScenario">
           <h2 style="margin-top:14px">Payment scenario (logical → real)</h2>
-          <p class="hint">Human USDC × 10^6 = logical atomic. Real atomic = floor(logical / scale). Sources must sum to payment (logical and real).</p>
+          <p class="hint">Enter human USDC (e.g. 400). Wire uses atomic = USDC × 10^6; real = floor(logical / scale). Sources must sum to payment.</p>
           <div class="row">
             <label>Scale factor
               <input id="scaleFactor" type="number" min="1" step="1" value="10" />
@@ -312,8 +313,8 @@
             <label>Asset (USDC)
               <input id="reqAsset" spellcheck="false" value="0x3600000000000000000000000000000000000000" />
             </label>
-            <label>Amount atomic (real)
-              <input id="reqAmount" spellcheck="false" value="42000000" />
+            <label>Amount (USDC)
+              <input id="reqAmount" spellcheck="false" value="42" inputmode="decimal" />
             </label>
             <label>Protocol
               <input id="reqProtocol" spellcheck="false" value="x402" />
@@ -414,6 +415,7 @@
       "eip155:5042002": { name: "arc-testnet", usdc: "0x3600000000000000000000000000000000000000" },
     };
 
+    // Examples use human USDC (6 decimals on wire; UI never asks for atomic).
     const EXAMPLES = {
       scenario: {
         agent: "0xAgentSelf000000000000000000000000000001",
@@ -429,14 +431,14 @@
       arc: {
         agent: "0xAgentSelf000000000000000000000000000001",
         balances: [
-          { location: "circle_gateway", chain_caip2: "", asset: "USDC", amount_atomic: "100000000" },
-          { location: "native", chain_caip2: "eip155:5042002", asset: CHAINS["eip155:5042002"].usdc, amount_atomic: "20000000" },
+          { location: "circle_gateway", chain_caip2: "", asset: "USDC", amount_usdc: "100" },
+          { location: "native", chain_caip2: "eip155:5042002", asset: CHAINS["eip155:5042002"].usdc, amount_usdc: "20" },
         ],
         required: {
           protocol: "x402",
           chain_caip2: "eip155:5042002",
           asset: CHAINS["eip155:5042002"].usdc,
-          amount_atomic: "42000000",
+          amount_usdc: "42",
           pay_to: "0xMerchantOnArc000000000000000000000001",
         },
         prefer_rail: "circle_gateway",
@@ -446,14 +448,14 @@
       fragmented: {
         agent: "0xAgentSelf000000000000000000000000000001",
         balances: [
-          { location: "native", chain_caip2: "eip155:421614", asset: CHAINS["eip155:421614"].usdc, amount_atomic: "50000000" },
-          { location: "native", chain_caip2: "eip155:84532", asset: CHAINS["eip155:84532"].usdc, amount_atomic: "10000000" },
+          { location: "native", chain_caip2: "eip155:421614", asset: CHAINS["eip155:421614"].usdc, amount_usdc: "50" },
+          { location: "native", chain_caip2: "eip155:84532", asset: CHAINS["eip155:84532"].usdc, amount_usdc: "10" },
         ],
         required: {
           protocol: "x402",
           chain_caip2: "eip155:84532",
           asset: CHAINS["eip155:84532"].usdc,
-          amount_atomic: "40000000",
+          amount_usdc: "40",
           pay_to: "0xMerchantOnBase0000000000000000000001",
         },
         prefer_rail: "circle_gateway",
@@ -463,8 +465,8 @@
       consolidate: {
         agent: "0xAgentSelf000000000000000000000000000001",
         balances: [
-          { location: "native", chain_caip2: "eip155:84532", asset: CHAINS["eip155:84532"].usdc, amount_atomic: "30000000" },
-          { location: "native", chain_caip2: "eip155:421614", asset: CHAINS["eip155:421614"].usdc, amount_atomic: "10000000" },
+          { location: "native", chain_caip2: "eip155:84532", asset: CHAINS["eip155:84532"].usdc, amount_usdc: "30" },
+          { location: "native", chain_caip2: "eip155:421614", asset: CHAINS["eip155:421614"].usdc, amount_usdc: "10" },
         ],
       },
     };
@@ -487,13 +489,26 @@
       }
     }
 
-    function humanToLogicalAtomic(human) {
+    // Human USDC (e.g. "40" or "40.5") → whole atomic units (× 10^6). Truncates beyond 6 decimals.
+    function humanToAtomic(human) {
       const s = String(human || "").trim();
-      if (!s) throw new Error("empty human amount");
-      if (!/^\d+(\.\d+)?$/.test(s)) throw new Error("human amount must be non-negative decimal");
+      if (!s) throw new Error("empty USDC amount");
+      if (!/^\d+(\.\d+)?$/.test(s)) throw new Error("USDC amount must be a non-negative decimal");
       const [whole, frac = ""] = s.split(".");
+      if (frac.length > 6) throw new Error("USDC amount has more than 6 decimal places");
       const frac6 = (frac + "000000").slice(0, 6);
       return BigInt(whole || "0") * POW10 + BigInt(frac6 || "0");
+    }
+
+    // Atomic units → display string in USDC (trim trailing zeros after decimal).
+    function atomicToHuman(atomic) {
+      const a = typeof atomic === "bigint" ? atomic : BigInt(String(atomic || "0").trim() || "0");
+      const neg = a < 0n;
+      const v = neg ? -a : a;
+      const whole = v / POW10;
+      let frac = (v % POW10).toString().padStart(6, "0").replace(/0+$/, "");
+      const body = frac ? `${whole}.${frac}` : whole.toString();
+      return neg ? `-${body}` : body;
     }
 
     function scaleReal(logical, scale) {
@@ -511,21 +526,21 @@
           ["Arb", $("srcArb").value, "eip155:421614"],
           ["Arc", $("srcArc").value, "eip155:5042002"],
         ];
-        const payL = humanToLogicalAtomic(payH);
+        const payL = humanToAtomic(payH);
         const payR = scaleReal(payL, scale);
         let sumL = 0n, sumR = 0n;
         const lines = parts.map(([name, h]) => {
           if (!h || h === "0") return null;
-          const l = humanToLogicalAtomic(h);
+          const l = humanToAtomic(h);
           const r = scaleReal(l, scale);
           sumL += l; sumR += r;
-          return `${name}: ${h} USDC → real ${r.toString()} atomic`;
+          return `${name}: ${h} → real ${atomicToHuman(r)} USDC`;
         }).filter(Boolean);
         const ok = sumL === payL && sumR === payR && sumR > 0n;
         $("scaleCalc").innerHTML =
-          `scale=<strong>${scale}</strong> · payment logical ${payL} → real <strong>${payR}</strong> atomic` +
+          `scale=<strong>${scale}</strong> · payment ${esc(payH)} USDC → real <strong>${atomicToHuman(payR)}</strong> USDC` +
           (lines.length ? `<br>${lines.join(" · ")}` : "") +
-          `<br>sum sources real ${sumR} ${ok ? "✓ matches payment" : "✗ must equal payment (logical + real)"}`;
+          `<br>sum sources real ${atomicToHuman(sumR)} USDC ${ok ? "✓ matches payment" : "✗ must equal payment (logical + real)"}`;
       } catch (e) {
         $("scaleCalc").textContent = String(e.message || e);
       }
@@ -541,34 +556,42 @@
       const out = [];
       for (const [caip, human] of rows) {
         if (!human || human === "0") continue;
-        const logical = humanToLogicalAtomic(human);
+        const logical = humanToAtomic(human);
         const real = scaleReal(logical, scale);
         if (real <= 0n) throw new Error(`source ${caip} real is zero after scale`);
         out.push({
           chain_caip2: caip,
           amount_atomic: real.toString(),
           amount_logical_atomic: logical.toString(),
-          _human: human,
+          amount_usdc: atomicToHuman(real),
         });
       }
       return out;
     }
 
     function syncInventoryFromScenario() {
-      const scale = Number($("scaleFactor").value || 1);
       const rows = scenarioSources().map((s) => ({
         location: "native",
         chain_caip2: s.chain_caip2,
         asset: CHAINS[s.chain_caip2].usdc,
-        amount_atomic: s.amount_atomic, // assert at least the deposit real
+        amount_usdc: s.amount_usdc, // real USDC after scale (covers deposit)
       }));
-      setBalances(rows.length ? rows : [{ location: "native", chain_caip2: "eip155:84532", asset: CHAINS["eip155:84532"].usdc, amount_atomic: "0" }]);
+      setBalances(rows.length ? rows : [{ location: "native", chain_caip2: "eip155:84532", asset: CHAINS["eip155:84532"].usdc, amount_usdc: "0" }]);
       updateScaleCalc();
     }
 
     function balanceRow(b = {}) {
       const tr = document.createElement("tr");
       tr.className = "bal-row";
+      // Prefer amount_usdc; fall back to converting legacy amount_atomic if present.
+      let usdc = b.amount_usdc;
+      if (usdc == null || usdc === "") {
+        if (b.amount_atomic != null && String(b.amount_atomic).trim() !== "") {
+          try { usdc = atomicToHuman(b.amount_atomic); } catch { usdc = ""; }
+        } else {
+          usdc = "";
+        }
+      }
       tr.innerHTML = `
         <td>
           <select data-k="location">
@@ -578,12 +601,12 @@
         </td>
         <td><input data-k="chain_caip2" spellcheck="false" placeholder="eip155:…" list="chainList" /></td>
         <td><input data-k="asset" spellcheck="false" placeholder="0x… or USDC" /></td>
-        <td><input data-k="amount_atomic" spellcheck="false" placeholder="30000000" /></td>
+        <td><input data-k="amount_usdc" spellcheck="false" inputmode="decimal" placeholder="40" /></td>
         <td class="bal-actions"><button type="button" class="ghost" data-rm title="Remove">✕</button></td>`;
       tr.querySelector('[data-k="location"]').value = b.location || "native";
       tr.querySelector('[data-k="chain_caip2"]').value = b.chain_caip2 || "";
       tr.querySelector('[data-k="asset"]').value = b.asset || "";
-      tr.querySelector('[data-k="amount_atomic"]').value = b.amount_atomic || "";
+      tr.querySelector('[data-k="amount_usdc"]').value = usdc;
       tr.querySelector("[data-rm]").onclick = () => tr.remove();
       return tr;
     }
@@ -591,13 +614,22 @@
     function readBalances() {
       return [...$("balancesBody").querySelectorAll("tr")].map((tr) => {
         const get = (k) => tr.querySelector(`[data-k="${k}"]`).value.trim();
-        const row = { location: get("location"), amount_atomic: get("amount_atomic") };
+        const usdc = get("amount_usdc");
+        if (!usdc || usdc === "0") return null;
+        let atomic;
+        try {
+          atomic = humanToAtomic(usdc);
+        } catch (e) {
+          throw new Error(`balance amount: ${e.message || e}`);
+        }
+        if (atomic <= 0n) return null;
+        const row = { location: get("location"), amount_atomic: atomic.toString() };
         const chain = get("chain_caip2");
         const asset = get("asset");
         if (chain) row.chain_caip2 = chain;
         if (asset) row.asset = asset;
         return row;
-      }).filter((b) => b.amount_atomic);
+      }).filter(Boolean);
     }
 
     function setBalances(rows) {
@@ -626,7 +658,7 @@
       if (!isConsolidate && ex.required) {
         $("reqChain").value = ex.required.chain_caip2;
         $("reqAsset").value = ex.required.asset;
-        $("reqAmount").value = ex.required.amount_atomic;
+        $("reqAmount").value = ex.required.amount_usdc || "0";
         $("reqProtocol").value = ex.required.protocol || "x402";
         $("reqPayTo").value = ex.required.pay_to;
         $("preferRail").value = ex.prefer_rail || "auto";
@@ -651,7 +683,7 @@
     function buildScenarioBody() {
       const scale = Number($("scaleFactor").value || 1);
       const payChain = $("scPayChain").value;
-      const payL = humanToLogicalAtomic($("scPayHuman").value);
+      const payL = humanToAtomic($("scPayHuman").value);
       const payR = scaleReal(payL, scale);
       if (payR <= 0n) throw new Error("payment real is zero after scale");
       const sources = scenarioSources().map(({ chain_caip2, amount_atomic, amount_logical_atomic }) => ({
@@ -680,12 +712,14 @@
     }
 
     function buildPlanBody() {
+      const amountAtomic = humanToAtomic($("reqAmount").value.trim());
+      if (amountAtomic <= 0n) throw new Error("required amount must be positive USDC");
       const body = {
         required: {
           protocol: $("reqProtocol").value.trim() || "x402",
           chain_caip2: $("reqChain").value.trim(),
           asset: $("reqAsset").value.trim(),
-          amount_atomic: $("reqAmount").value.trim(),
+          amount_atomic: amountAtomic.toString(),
           pay_to: $("reqPayTo").value.trim(),
           pay_to_role: "merchant",
           source: "probe",
@@ -727,8 +761,20 @@
       if (plan.executed === false) pills.push(`<span class="pill">executed=false</span>`);
       if (plan.inventory_unverified) pills.push(`<span class="pill">inventory_unverified</span>`);
       if (req.scale_factor) pills.push(`<span class="pill scale">scale=${esc(req.scale_factor)}</span>`);
-      if (req.amount_logical_atomic) pills.push(`<span class="pill scale">logical=${esc(req.amount_logical_atomic)}</span>`);
-      if (req.amount_atomic) pills.push(`<span class="pill">real=${esc(req.amount_atomic)}</span>`);
+      if (req.amount_logical_atomic) {
+        try {
+          pills.push(`<span class="pill scale">logical=${esc(atomicToHuman(req.amount_logical_atomic))} USDC</span>`);
+        } catch {
+          pills.push(`<span class="pill scale">logical=${esc(req.amount_logical_atomic)}</span>`);
+        }
+      }
+      if (req.amount_atomic) {
+        try {
+          pills.push(`<span class="pill">real=${esc(atomicToHuman(req.amount_atomic))} USDC</span>`);
+        } catch {
+          pills.push(`<span class="pill">real=${esc(req.amount_atomic)}</span>`);
+        }
+      }
       if (data.receipt && data.receipt.tx_hashes && data.receipt.tx_hashes.length) {
         pills.push(`<span class="pill ok">tx_hashes=${data.receipt.tx_hashes.length}</span>`);
       }
@@ -749,12 +795,22 @@
         const prep = (s.prepare_calls || []).length
           ? `<div class="muted" style="margin-top:6px">${s.prepare_calls.length} prepare_call(s)${s.prepare_calls.map((c) => c.method).filter(Boolean).length ? ": " + s.prepare_calls.map((c) => c.method).join(" → ") : ""}</div>`
           : "";
+        let amtLabel = "";
+        if (s.amount_atomic) {
+          try {
+            amtLabel = ` · ${esc(atomicToHuman(s.amount_atomic))} USDC`;
+          } catch {
+            amtLabel = ` · ${esc(s.amount_atomic)} atomic`;
+          }
+        }
         const logical = s.amount_logical_atomic
-          ? ` · logical ${esc(s.amount_logical_atomic)}`
+          ? (() => {
+              try { return ` · logical ${esc(atomicToHuman(s.amount_logical_atomic))} USDC`; }
+              catch { return ` · logical ${esc(s.amount_logical_atomic)}`; }
+            })()
           : "";
         div.innerHTML = `
-          <div><strong>#${i + 1}</strong> <code>${esc(s.kind || "")}</code>
-            ${s.amount_atomic ? ` · real ${esc(s.amount_atomic)} atomic` : ""}${logical}
+          <div><strong>#${i + 1}</strong> <code>${esc(s.kind || "")}</code>${amtLabel}${logical}
           </div>
           <div class="muted" style="margin-top:4px">
             ${s.from_chain_caip2 ? esc(s.from_chain_caip2) : "—"}
