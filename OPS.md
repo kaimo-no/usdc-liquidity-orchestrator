@@ -8,8 +8,9 @@ Pre-production / hackathon ops checklist for **usdc-liquidity-orchestrator**.
 - `cmd/server` is stateless; safe to run ephemerally
 - Inventory is request-scoped — do not persist balances server-side
 - Optional local `.env` (gitignored): copy from `.env.example`; `internal/envfile` never logs values
-- `cmd/server` and `cmd/demo` both load `.env` at startup (does not override existing process env)
-- Demo payment scenario (`PAYMENT_*`, `SOURCE_AMOUNT_*`, `USDC_SCALE_FACTOR`) is **CLI-only** — not applied to HTTP `/v1/plan`
+- `cmd/server`, `cmd/usdc-liq`, and `cmd/demo` load `.env` at startup (does not override existing process env)
+- Demo payment scenario (`PAYMENT_*`, `SOURCE_AMOUNT_*`, `USDC_SCALE_FACTOR`) is **CLI demo / `usdc-liq demo` only** — not applied to HTTP `/v1/plan` or `usdc-liq plan` (those take explicit JSON)
+- CLI dry plans need no secrets; CLI `--execute` uses the same dual-gate as HTTP but **without** loopback bind requirement
 
 ## Optional testnet Gateway execute
 
@@ -50,9 +51,9 @@ go run ./cmd/server
 
 See [`.env.example`](./.env.example) for all placeholders.
 
-## Live inventory (demo only)
+## Live inventory (CLI only)
 
-`cmd/demo` scenario plan may call `internal/inventory.Load` when `AGENT_ADDRESS` / key and testnet RPCs are set: ERC-20 `balanceOf` USDC + optional Gateway `POST /v1/balances` (domains 3, 6, 26). Hard-coded `SOURCE_AMOUNT_*` reals still drive funding; each source real must not exceed live native on that chain (`insufficient_liquidity`). Dry plans still stamp `inventory_unverified=true`. Never log balances or RPC URLs.
+`usdc-liq inventory` and demo scenario plan may call `internal/inventory.Load` when agent address and testnet RPCs are set: ERC-20 `balanceOf` USDC + optional Gateway `POST /v1/balances` (domains 3, 6, 26). Demo hard-coded `SOURCE_AMOUNT_*` reals still drive funding; each source real must not exceed live native on that chain (`insufficient_liquidity`). Dry plans still stamp `inventory_unverified=true`. Never log balances or RPC URLs.
 
 Docker must **not** enable execute by default. Do not pass keys into images.
 

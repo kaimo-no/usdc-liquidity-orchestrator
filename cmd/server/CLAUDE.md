@@ -13,18 +13,18 @@ Thin HTTP microservice wrapping `pkg/liquidity` (+ optional `pkg/execonchain`).
 | POST | `/v1/payment-funding` | Scenario full-funding `PlanPaymentFunding` (hard-coded sources + real amounts) |
 | POST | `/v1/consolidate` | Decode `ConsolidateRequest` → deposit plan; stamp dry/execute; optional Executor |
 
-Handlers live in `internal/httpserver` (`NewMux` / `NewMuxWithOptions`) so `cmd/server/tests` can black-box the surface.
+Handlers live in `internal/httpserver` (`NewMux` / `NewMuxWithOptions`) so `cmd/server/tests` can black-box the surface. Plan/stamp logic is shared with the CLI via `internal/planio`. Executor dual-gate is `internal/execenv.BuildExecutor` (loopback required for HTTP).
 
-## Execute stamping (`stampPlanResponse`)
+## Execute stamping (`internal/planio.StampPlan`)
 
-| Case | Plan stamps | Receipt | HTTP |
+| Case | Plan stamps | Receipt | HTTP / CLI exit |
 |---|---|---|---|
-| `execute=false` | force dry | none | 200 |
-| success (no err) | `dry_run=false` `executed=true` | `tx_hashes` | 200 |
-| partial (hashes + err) | `dry_run=false` `executed=false` | `tx_hashes` + error | 400 |
-| fail zero hashes | force dry | none + error | 400 |
+| `execute=false` | force dry | none | 200 / 0 |
+| success (no err) | `dry_run=false` `executed=true` | `tx_hashes` | 200 / 0 |
+| partial (hashes + err) | `dry_run=false` `executed=false` | `tx_hashes` + error | 400 / 1 |
+| fail zero hashes | force dry | none + error | 400 / 1 |
 
-API error messages use stable `pkg/errors` Message only — never raw RPC strings.
+API error messages use stable `pkg/errors` Message only — never raw RPC strings. Peer CLI: `cmd/usdc-liq`.
 
 ## Env (execute dual gate)
 

@@ -2,7 +2,7 @@
 
 **[kaimo-no](https://github.com/kaimo-no)** · public component for agentic commerce
 
-**Non-custodial multi-chain USDC rebalancing.** Agents set a **target chain** and optional **source** allowlist; this library + microservice **plans** how to fund the agent’s own wallet on the target via **Circle Gateway** (preferred unified balance) and **CCTP Fast Transfer** (fallback) — without product custody and without platform MoR. Arc Testnet is first-class for Circle/Arc hackathon corridors.
+**Non-custodial multi-chain USDC rebalancing.** Agents set a **target chain** and optional **source** allowlist; this **library · CLI · HTTP · skill** (equal peers) **plans** how to fund the agent’s own wallet on the target via **Circle Gateway** (preferred unified balance) and **CCTP Fast Transfer** (fallback) — without product custody and without platform MoR. Arc Testnet is first-class for Circle/Arc hackathon corridors.
 
 | | |
 |---|---|
@@ -33,7 +33,8 @@ Docs for agents: **[`CLAUDE.md`](./CLAUDE.md)** · **[`AGENTS.md`](./AGENTS.md)*
 git clone https://github.com/kaimo-no/usdc-liquidity-orchestrator.git
 cd usdc-liquidity-orchestrator
 go test ./...
-go run ./cmd/demo
+go run ./cmd/usdc-liq plan -f examples/plan.json
+go run ./cmd/usdc-liq demo
 go run ./cmd/server   # :8088 — open http://127.0.0.1:8088/ (scenario / plan / consolidate UI)
 bash examples/curl.sh
 
@@ -50,6 +51,19 @@ plan, err := liquidity.PlanLiquidity(req, inv, nil)
 wire := liquidity.PlanToWire(plan)
 ```
 
+### CLI (`usdc-liq`)
+
+HTTP parity: `plan` · `consolidate` · `payment-funding` · `chains` (shared `internal/planio` stamps)  
+CLI extras: `inventory` · `demo` · `version`
+
+```bash
+go run ./cmd/usdc-liq plan -f examples/plan.json
+go run ./cmd/usdc-liq consolidate -f examples/consolidate-testnet.json
+go run ./cmd/usdc-liq chains
+```
+
+Product skill for agents: [`skills/usdc-liquidity/`](./skills/usdc-liquidity/).
+
 ### HTTP
 
 `GET /` — MVP UI (scenario full-funding, shortfall plan, consolidate, chains)  
@@ -64,12 +78,17 @@ wire := liquidity.PlanToWire(plan)
 ## Architecture
 
 ```text
-pkg/liquidity    pure planner + Guard + UnconfiguredExecutor
-pkg/execonchain  optional testnet-only Gateway deposit + burn/mint execute
-pkg/types        wire JSON (+ optional ExecuteReceipt)
-pkg/errors       stable codes
-cmd/server       thin HTTP microservice
-cmd/demo         worked example (+ optional live testnet execute)
+pkg/liquidity          pure planner + Guard + UnconfiguredExecutor
+pkg/execonchain        optional testnet-only Gateway deposit + burn/mint execute
+pkg/types              wire JSON (+ optional ExecuteReceipt)
+pkg/errors             stable codes
+internal/planio        shared stamp + Run* (HTTP + CLI)
+internal/execenv       dual-gate Executor from env
+internal/liqcli        usdc-liq command implementation
+cmd/server             thin HTTP microservice
+cmd/usdc-liq           dual-surface CLI
+cmd/demo               thin wrapper → internal/demorun
+skills/usdc-liquidity  product skill (CLI + HTTP + invariants)
 ```
 
 Plan preference: `noop` → `circle_gateway_withdraw` → `circle_gateway_deposit_withdraw` → `cctp_fast` → `insufficient` / `corridor_unsupported` (override with `orchestration.prefer_rail`).
@@ -131,7 +150,9 @@ PR rules: [`.github/pr-review-instructions.md`](./.github/pr-review-instructions
 | `pkg/types/` | Wire | [CLAUDE.md](./pkg/types/CLAUDE.md) |
 | `pkg/errors/` | Codes | [CLAUDE.md](./pkg/errors/CLAUDE.md) |
 | `cmd/server/` | HTTP | [CLAUDE.md](./cmd/server/CLAUDE.md) |
-| `cmd/demo/` | CLI demo | — |
+| `cmd/usdc-liq/` | CLI | [CLAUDE.md](./cmd/usdc-liq/CLAUDE.md) |
+| `cmd/demo/` | Demo wrapper | → `internal/demorun` |
+| `skills/usdc-liquidity/` | Product skill | dry default, fail-closed execute |
 
 ---
 
