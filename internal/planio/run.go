@@ -70,6 +70,10 @@ func RunDeposit(ctx context.Context, ex liquidity.Executor, req types.DepositReq
 		return CodedPlanError(liqerr.New(liqerr.CodeInvalidQuery,
 			"liquidity: deposit sources[] is mutually exclusive with source_chain_caip2/amount_atomic"))
 	}
+	if !singleSet && !multiSet {
+		return CodedPlanError(liqerr.New(liqerr.CodeInvalidQuery,
+			"liquidity: deposit requires source_chain_caip2+amount_atomic or sources[]"))
+	}
 
 	var plan liquidity.Plan
 	if multiSet {

@@ -96,7 +96,7 @@ JSON mode (plan | consolidate | deposit | move | payment-funding):
 Easy mode (plan | consolidate | deposit | move) — XOR with -f; incomplete → exit 2:
   --dest REF        dest domain id | name | CAIP-2 (plan/move)
   --source REF      single source chain (deposit; XOR --from)
-  --from REF=USDC   multi fixed deposit per chain (repeatable; XOR --source/--amount)
+  --from REF=USDC   multi fixed deposit per chain (repeatable; XOR --source/--amount/--amount-atomic)
   --sources REFS    comma-separated source chain refs (plan/move/allowlist)
   --amount USDC     human USDC (×10^6 atomic); XOR --amount-atomic
   --amount-atomic N atomic USDC string

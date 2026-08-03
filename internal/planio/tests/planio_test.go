@@ -270,6 +270,24 @@ func TestRunDeposit_ExclusiveSourcesPlusAmountAtomicOnly(t *testing.T) {
 	assert.Equal(t, liqerr.CodeInvalidQuery, resp.Error.Code)
 }
 
+func TestRunDeposit_NeitherMode(t *testing.T) {
+	// Neither single-source fields nor sources[] → clear mode error (not amount_atomic required).
+	req := types.DepositRequest{
+		Inventory: types.Inventory{
+			AgentAddress: agentAddr,
+			Balances: []types.Balance{{
+				ChainCAIP2: arcCAIP2, Asset: arcUSDC,
+				AmountAtomic: "1000", Location: "native",
+			}},
+		},
+	}
+	resp, out := planio.RunDeposit(context.Background(), nil, req)
+	assert.Equal(t, planio.StampFail, out)
+	require.NotNil(t, resp.Error)
+	assert.Equal(t, liqerr.CodeInvalidQuery, resp.Error.Code)
+	assert.Contains(t, resp.Error.Message, "source_chain_caip2+amount_atomic or sources[]")
+}
+
 func TestRunMove_DryWithdraw(t *testing.T) {
 	req := types.MoveRequest{
 		DestChainCAIP2: arcCAIP2,
