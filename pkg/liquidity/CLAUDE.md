@@ -13,7 +13,8 @@ Testnet-ready: multi-chain **consolidate** deposits + unsigned **prepare_calls**
 | `PlanOrchestration` | Shortfall-only rebalance + `Orchestration` + optional `FeeConfig` |
 | `PlanPaymentFunding` | Scenario Phase A multi-source deposits only (not shortfall; no withdraw) |
 | `PlanConsolidate` | Full-balance Gateway deposits (no pay_to/fee); action `circle_gateway_consolidate` |
-| `PlanGatewayDeposit` | Fixed-N single-source Gateway deposit (no pay_to/fee); hard underfund error |
+| `PlanGatewayDeposit` | Fixed-N single-source Gateway deposit (wraps `PlanGatewayDeposits`; no pay_to/fee); hard underfund error |
+| `PlanGatewayDeposits` | Fixed multi-source Gateway deposits (no pay_to/fee; no payment-sum rule); merge duplicate chains; hard underfund per normalized source; MaxAmountAtomic is per-step |
 | `PlanSelfRebalance` | Land N on dest agent_self shortfall-only (empty pay_to; `selfRebalance`) |
 | `ListChains` / `LookupChain` / `LookupByGatewayDomain` / `ResolveChainRef` / `GatewayWalletAddress` | Registry + domain/name/CAIP-2 resolve + Gateway Wallet |
 | `PlanToWire` | Agent-facing `types.Plan` stamps (+ fee + prepare_calls; optional logical/scale) |

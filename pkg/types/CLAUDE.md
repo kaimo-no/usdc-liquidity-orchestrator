@@ -13,7 +13,7 @@ Agent-facing wire shapes for plan I/O (JSON tags only).
 - `Inventory` / `Balance` — client-asserted balances (also bare success body for `POST /v1/inventory`)
 - `InventoryRequest` — `POST /v1/inventory` input (`agent_address` only)
 - `PlanRequest` / `ConsolidateRequest` / `PaymentFundingRequest` / `FundingSource` — HTTP inputs
-- `DepositRequest` / `MoveRequest` — CLI JSON only (no HTTP this cut); fixed-N deposit + self-land move
+- `DepositRequest` / `MoveRequest` — CLI JSON only (no HTTP this cut); fixed-N deposit (single fields XOR `sources[]`) + self-land move
 - `PlanResponse` / `APIError` / `ExecuteReceipt` — HTTP outputs (`APIError` is also bare error body for inventory)
 - `ExecuteReceipt` — optional `tx_hashes` on successful/partial execute (no notes on wire)
 - `ChainInfo` / `ChainsResponse` — `GET /v1/chains` discovery (`testnet`, `gateway_wallet`)

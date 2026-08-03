@@ -66,6 +66,12 @@ go run ./cmd/usdc-liq plan \
   --agent 0xAgent…  \
   --dest 26 --amount 42 --sources 6 \
   --balance 6=100 --gateway-balance 80
+
+# Multi fixed deposit into Gateway (Phase A)
+go run ./cmd/usdc-liq deposit \
+  --agent 0xAgent… \
+  --from base-sepolia=3 --from arbitrum-sepolia=2 \
+  --balance base-sepolia=3 --balance arbitrum-sepolia=2
 ```
 
 Product skill for agents: [`skills/usdc-liquidity/`](./skills/usdc-liquidity/).

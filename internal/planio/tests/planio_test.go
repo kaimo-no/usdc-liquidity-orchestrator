@@ -204,6 +204,72 @@ func TestRunDeposit_Underfund_StampFail(t *testing.T) {
 	assert.Equal(t, liqerr.CodeInsufficientLiquidity, resp.Error.Code)
 }
 
+func TestRunDeposit_MultiDry(t *testing.T) {
+	const arbSepCAIP2 = "eip155:421614"
+	const arbSepUSDC = "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d"
+	req := types.DepositRequest{
+		Inventory: types.Inventory{
+			AgentAddress: agentAddr,
+			Balances: []types.Balance{
+				{ChainCAIP2: baseSepCAIP2, Asset: baseSepUSDC, AmountAtomic: "3000000", Location: "native"},
+				{ChainCAIP2: arbSepCAIP2, Asset: arbSepUSDC, AmountAtomic: "2000000", Location: "native"},
+			},
+		},
+		Sources: []types.FundingSource{
+			{ChainCAIP2: baseSepCAIP2, AmountAtomic: "3000000"},
+			{ChainCAIP2: arbSepCAIP2, AmountAtomic: "2000000"},
+		},
+	}
+	resp, out := planio.RunDeposit(context.Background(), nil, req)
+	assert.Equal(t, planio.StampOK, out)
+	assert.Nil(t, resp.Error)
+	assert.Equal(t, "circle_gateway_deposit", resp.Plan.Action)
+	assert.True(t, resp.Plan.DryRun)
+	require.Len(t, resp.Plan.Steps, 2)
+}
+
+func TestRunDeposit_ExclusiveSingleAndMulti(t *testing.T) {
+	req := types.DepositRequest{
+		Inventory: types.Inventory{
+			AgentAddress: agentAddr,
+			Balances: []types.Balance{{
+				ChainCAIP2: arcCAIP2, Asset: arcUSDC,
+				AmountAtomic: "1000", Location: "native",
+			}},
+		},
+		SourceChainCAIP2: arcCAIP2,
+		AmountAtomic:     "500",
+		Sources: []types.FundingSource{
+			{ChainCAIP2: arcCAIP2, AmountAtomic: "500"},
+		},
+	}
+	resp, out := planio.RunDeposit(context.Background(), nil, req)
+	assert.Equal(t, planio.StampFail, out)
+	require.NotNil(t, resp.Error)
+	assert.Equal(t, liqerr.CodeInvalidQuery, resp.Error.Code)
+}
+
+func TestRunDeposit_ExclusiveSourcesPlusAmountAtomicOnly(t *testing.T) {
+	// sources[] + amount_atomic (no source_chain_caip2) is still exclusive → invalid_query.
+	req := types.DepositRequest{
+		Inventory: types.Inventory{
+			AgentAddress: agentAddr,
+			Balances: []types.Balance{{
+				ChainCAIP2: arcCAIP2, Asset: arcUSDC,
+				AmountAtomic: "1000", Location: "native",
+			}},
+		},
+		AmountAtomic: "500",
+		Sources: []types.FundingSource{
+			{ChainCAIP2: arcCAIP2, AmountAtomic: "500"},
+		},
+	}
+	resp, out := planio.RunDeposit(context.Background(), nil, req)
+	assert.Equal(t, planio.StampFail, out)
+	require.NotNil(t, resp.Error)
+	assert.Equal(t, liqerr.CodeInvalidQuery, resp.Error.Code)
+}
+
 func TestRunMove_DryWithdraw(t *testing.T) {
 	req := types.MoveRequest{
 		DestChainCAIP2: arcCAIP2,

@@ -53,7 +53,7 @@ func RunConsolidate(ctx context.Context, ex liquidity.Executor, req types.Consol
 	return stampAfterExecute(ctx, ex, plan, req.Execute)
 }
 
-// RunDeposit plans a fixed-N Gateway deposit and optionally executes.
+// RunDeposit plans a fixed-N Gateway deposit (single or multi-source) and optionally executes.
 func RunDeposit(ctx context.Context, ex liquidity.Executor, req types.DepositRequest) (types.PlanResponse, StampOutcome) {
 	if ex == nil {
 		ex = liquidity.UnconfiguredExecutor{}
@@ -62,15 +62,34 @@ func RunDeposit(ctx context.Context, ex liquidity.Executor, req types.DepositReq
 	if err != nil {
 		return CodedPlanError(err)
 	}
-	amt, err := parseAtomicWire(req.AmountAtomic)
-	if err != nil {
-		return CodedPlanError(err)
-	}
 	orch := liquidity.OrchestrationFromWire(req.Orchestration)
 
-	plan, err := liquidity.PlanGatewayDeposit(inv, req.SourceChainCAIP2, amt, orch, nil)
-	if err != nil {
-		return CodedPlanError(err)
+	singleSet := strings.TrimSpace(req.SourceChainCAIP2) != "" || strings.TrimSpace(req.AmountAtomic) != ""
+	multiSet := len(req.Sources) > 0
+	if singleSet && multiSet {
+		return CodedPlanError(liqerr.New(liqerr.CodeInvalidQuery,
+			"liquidity: deposit sources[] is mutually exclusive with source_chain_caip2/amount_atomic"))
+	}
+
+	var plan liquidity.Plan
+	if multiSet {
+		sources, err := liquidity.FundingSourcesFromWire(req.Sources)
+		if err != nil {
+			return CodedPlanError(err)
+		}
+		plan, err = liquidity.PlanGatewayDeposits(inv, sources, orch, nil)
+		if err != nil {
+			return CodedPlanError(err)
+		}
+	} else {
+		amt, err := parseAtomicWire(req.AmountAtomic)
+		if err != nil {
+			return CodedPlanError(err)
+		}
+		plan, err = liquidity.PlanGatewayDeposit(inv, req.SourceChainCAIP2, amt, orch, nil)
+		if err != nil {
+			return CodedPlanError(err)
+		}
 	}
 	return stampAfterExecute(ctx, ex, plan, req.Execute)
 }
