@@ -34,6 +34,7 @@ var bodyEasyFlagNames = map[string]struct{}{
 	"dest":            {},
 	"source":          {},
 	"sources":         {},
+	"from":            {},
 	"amount":          {},
 	"amount-atomic":   {},
 	"balance":         {},
@@ -78,11 +79,13 @@ type EasyConsolidateInput struct {
 }
 
 // EasyDepositInput is easy-mode fixed-N deposit flags (no pay_to).
+// Single: Source + Amount/AmountAtomic. Multi: From (ref=humanUSDC), exclusive with single.
 type EasyDepositInput struct {
 	EasyCommon
 	Source       string
 	Amount       string
 	AmountAtomic string
+	From         []string // repeatable --from REF=USDC (multi fixed)
 }
 
 // EasyMoveInput is easy-mode self-land flags (no pay_to).
@@ -191,9 +194,18 @@ func ParseAmountExclusive(amountHuman, amountAtomic string) (decimal.Decimal, er
 
 // ParseChainAmountKV parses "ref=humanUSDC" for --balance.
 func ParseChainAmountKV(kv string, testnet bool) (caip2 string, amountAtomic decimal.Decimal, err error) {
+	return parseChainAmountKVLabeled(kv, testnet, "balance")
+}
+
+// ParseFromAmountKV parses "ref=humanUSDC" for deposit --from.
+func ParseFromAmountKV(kv string, testnet bool) (caip2 string, amountAtomic decimal.Decimal, err error) {
+	return parseChainAmountKVLabeled(kv, testnet, "from")
+}
+
+func parseChainAmountKVLabeled(kv string, testnet bool, label string) (caip2 string, amountAtomic decimal.Decimal, err error) {
 	ref, human, err := splitKV(kv)
 	if err != nil {
-		return "", decimal.Zero, liqerr.New(liqerr.CodeInvalidQuery, "balance: expected ref=humanUSDC")
+		return "", decimal.Zero, liqerr.New(liqerr.CodeInvalidQuery, "%s: expected ref=humanUSDC", label)
 	}
 	info, err := liquidity.ResolveChainRef(ref, testnet)
 	if err != nil {
@@ -357,21 +369,31 @@ func ValidateEasyConsolidateRequired(in EasyConsolidateInput, agent string) erro
 	return nil
 }
 
-// ValidateEasyDepositRequired checks agent, source, amount XOR, inventory for deposit easy.
+// ValidateEasyDepositRequired checks agent, single XOR multi, amount XOR, inventory for deposit easy.
 func ValidateEasyDepositRequired(in EasyDepositInput, agent string) error {
 	if strings.TrimSpace(agent) == "" {
 		return fmt.Errorf("deposit: --agent or --private-key required")
 	}
-	if strings.TrimSpace(in.Source) == "" {
-		return fmt.Errorf("deposit: source required")
-	}
+	multi := len(in.From) > 0
+	singleSource := strings.TrimSpace(in.Source) != ""
 	h := strings.TrimSpace(in.Amount)
 	a := strings.TrimSpace(in.AmountAtomic)
-	if h == "" && a == "" {
-		return fmt.Errorf("deposit: --amount or --amount-atomic required")
+	singleAmt := h != "" || a != ""
+	if multi && (singleSource || singleAmt) {
+		return fmt.Errorf("deposit: --from is mutually exclusive with --source/--amount/--amount-atomic")
 	}
-	if h != "" && a != "" {
-		return fmt.Errorf("deposit: --amount and --amount-atomic are mutually exclusive")
+	if multi {
+		// --from list non-empty is enough; inventory still required below.
+	} else {
+		if !singleSource {
+			return fmt.Errorf("deposit: --source or --from required")
+		}
+		if h == "" && a == "" {
+			return fmt.Errorf("deposit: --amount or --amount-atomic required")
+		}
+		if h != "" && a != "" {
+			return fmt.Errorf("deposit: --amount and --amount-atomic are mutually exclusive")
+		}
 	}
 	if !in.Live && len(in.Balances) == 0 {
 		return fmt.Errorf("deposit: require --balance or --live")
@@ -504,15 +526,8 @@ func BuildConsolidateRequestFromEasy(in EasyConsolidateInput, inv types.Inventor
 }
 
 // BuildDepositRequestFromEasy maps easy flags + inventory to DepositRequest.
+// Multi --from builds sources[]; single uses source_chain_caip2 + amount_atomic.
 func BuildDepositRequestFromEasy(in EasyDepositInput, inv types.Inventory) (types.DepositRequest, error) {
-	src, err := liquidity.ResolveChainRef(in.Source, in.Testnet)
-	if err != nil {
-		return types.DepositRequest{}, err
-	}
-	amt, err := ParseAmountExclusive(in.Amount, in.AmountAtomic)
-	if err != nil {
-		return types.DepositRequest{}, err
-	}
 	var orch *types.Orchestration
 	if strings.TrimSpace(in.Sources) != "" {
 		sources, err := resolveSourceCAIP2s(in.Sources, in.Testnet)
@@ -522,6 +537,33 @@ func BuildDepositRequestFromEasy(in EasyDepositInput, inv types.Inventory) (type
 		if len(sources) > 0 {
 			orch = &types.Orchestration{SourceChainCAIP2s: sources}
 		}
+	}
+	if len(in.From) > 0 {
+		wireSources := make([]types.FundingSource, 0, len(in.From))
+		for _, kv := range in.From {
+			caip, amt, err := ParseFromAmountKV(kv, in.Testnet)
+			if err != nil {
+				return types.DepositRequest{}, err
+			}
+			wireSources = append(wireSources, types.FundingSource{
+				ChainCAIP2:   caip,
+				AmountAtomic: amt.String(),
+			})
+		}
+		return types.DepositRequest{
+			Inventory:     inv,
+			Sources:       wireSources,
+			Orchestration: orch,
+			Execute:       in.Execute,
+		}, nil
+	}
+	src, err := liquidity.ResolveChainRef(in.Source, in.Testnet)
+	if err != nil {
+		return types.DepositRequest{}, err
+	}
+	amt, err := ParseAmountExclusive(in.Amount, in.AmountAtomic)
+	if err != nil {
+		return types.DepositRequest{}, err
 	}
 	return types.DepositRequest{
 		Inventory:        inv,

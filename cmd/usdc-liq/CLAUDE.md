@@ -14,22 +14,24 @@ Logic lives in `internal/liqcli.Main`. This package only:
 | Command | HTTP parity | Notes |
 |---|---|---|
 | `plan` | `POST /v1/plan` | shortfall-only; JSON `-f` **or** easy flags |
-| `consolidate` | `POST /v1/consolidate` | deposit plan; JSON `-f` **or** easy flags |
+| `consolidate` | `POST /v1/consolidate` | full native → gateway; JSON `-f` **or** easy flags |
+| `deposit` | CLI-only | fixed-N Gateway deposit; single or multi `--from`; no HTTP this cut |
+| `move` | CLI-only | self-land shortfall; no HTTP this cut |
 | `payment-funding` | `POST /v1/payment-funding` | scenario full-funding (JSON only) |
 | `chains` | `GET /v1/chains` | corridor registry |
 | `inventory` | CLI-only | live balances; needs agent + RPCs |
 | `demo` | CLI-only | `internal/demorun` worked examples |
 | `version` | CLI-only | print version |
 
-## JSON vs easy mode (`plan` / `consolidate`)
+## JSON vs easy mode (`plan` / `consolidate` / `deposit` / `move`)
 
 | Mode | When | Body |
 |---|---|---|
-| **Easy** | Any body easy flag: `--dest`, `--sources`, `--amount`, `--amount-atomic`, `--pay-to`, `--balance`, `--gateway-balance`, `--live` | Built in-process; **no stdin/`-f` read** |
+| **Easy** | Any body easy flag: `--dest`, `--sources`, `--source`, `--from`, `--amount`, `--amount-atomic`, `--pay-to`, `--balance`, `--gateway-balance`, `--live` | Built in-process; **no stdin/`-f` read** |
 | **JSON** | No body easy flags | `-f` file (default `-` = stdin) |
 | **Exclusive** | Body easy flags **and** `-f` Visited | exit **2** |
 
-Incomplete easy (missing dest / pay-to / amount / agent on plan) → exit **2**, never hangs on stdin.
+Incomplete easy (missing dest / amount / agent / source as required) → exit **2**, never hangs on stdin.
 
 Non-body flags alone do **not** force easy: `--agent`, `--private-key`, `--rpc`, `--mainnet`, `--execute`.
 
@@ -38,6 +40,8 @@ Non-body flags alone do **not** force easy: `--agent`, `--private-key`, `--rpc`,
 | Flag | Meaning |
 |---|---|
 | `--dest` / `--sources` | chain ref: Gateway domain id, registry name, or CAIP-2 |
+| `--source` | single deposit source chain (XOR `--from`) |
+| `--from REF=USDC` | multi fixed deposit; **human USDC only** (×10^6); repeatable; duplicate chains merge |
 | `--amount` / `--amount-atomic` | human USDC (×10^6) XOR atomic; refuse >6 frac digits |
 | `--pay-to` | merchant claim (plan only; never fund dest) |
 | `--balance REF=USDC` | asserted native (repeatable); XOR `--live` |
@@ -48,7 +52,7 @@ Non-body flags alone do **not** force easy: `--agent`, `--private-key`, `--rpc`,
 | `--mainnet` | domain resolution mainnet (default testnet) |
 | `--execute` | dual-gate live execute (`ENABLE_TESTNET_EXECUTE=1`) |
 
-Always `planio.RunPlan` / `RunConsolidate` (shortfall only for plan). `--live` does not imply execute.
+`planio.RunPlan` / `RunConsolidate` / `RunDeposit` / `RunMove`. Deposit multi uses `sources[]` XOR single fields. `--from` is human USDC only — raw atomic multi via JSON `sources[].amount_atomic`. `--live` does not imply execute.
 
 ## Dry vs execute
 

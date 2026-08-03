@@ -116,12 +116,16 @@ type ConsolidateRequest struct {
 
 // DepositRequest is CLI JSON input for fixed-N Gateway deposit (no merchant claim / fee).
 // Not exposed on HTTP this cut.
+//
+// Single-source: set source_chain_caip2 + amount_atomic (Sources empty).
+// Multi-source: set sources[] with per-chain amount_atomic; do not also set single fields.
 type DepositRequest struct {
-	Inventory        Inventory      `json:"inventory"`
-	SourceChainCAIP2 string         `json:"source_chain_caip2"`
-	AmountAtomic     string         `json:"amount_atomic"`
-	Orchestration    *Orchestration `json:"orchestration,omitempty"`
-	Execute          bool           `json:"execute,omitempty"`
+	Inventory        Inventory       `json:"inventory"`
+	SourceChainCAIP2 string          `json:"source_chain_caip2,omitempty"`
+	AmountAtomic     string          `json:"amount_atomic,omitempty"`
+	Sources          []FundingSource `json:"sources,omitempty"`
+	Orchestration    *Orchestration  `json:"orchestration,omitempty"`
+	Execute          bool            `json:"execute,omitempty"`
 }
 
 // MoveRequest is CLI JSON input for self-land rebalance (land N on dest agent_self).

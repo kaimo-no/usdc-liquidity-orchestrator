@@ -72,7 +72,7 @@ Usage:
   usdc-liq <command> [flags]
 
 Phase A — fund circle_gateway (deposits only; no withdraw in same plan):
-  deposit           fixed-N native → circle_gateway (single source)
+  deposit           fixed-N native → circle_gateway (single --source or multi --from)
   consolidate       full native balances → circle_gateway
   payment-funding   scenario multi-source fixed deposits (HTTP parity)
 
@@ -95,7 +95,8 @@ JSON mode (plan | consolidate | deposit | move | payment-funding):
 
 Easy mode (plan | consolidate | deposit | move) — XOR with -f; incomplete → exit 2:
   --dest REF        dest domain id | name | CAIP-2 (plan/move)
-  --source REF      single source chain (deposit)
+  --source REF      single source chain (deposit; XOR --from)
+  --from REF=USDC   multi fixed deposit per chain (repeatable; XOR --source/--amount/--amount-atomic)
   --sources REFS    comma-separated source chain refs (plan/move/allowlist)
   --amount USDC     human USDC (×10^6 atomic); XOR --amount-atomic
   --amount-atomic N atomic USDC string
@@ -462,13 +463,13 @@ type easyFlagHolders struct {
 	dest, source, sources, amount, amountAtomic stringPtr
 	gatewayBalance, agent, privateKey           stringPtr
 	mainnet, live                               *bool
-	balances, rpcs                              *stringList
+	balances, rpcs, froms                       *stringList
 }
 
 type stringPtr = *string
 
 func addEasyFlags(fs *flag.FlagSet) easyFlagHolders {
-	var bals, rpcs stringList
+	var bals, rpcs, froms stringList
 	h := easyFlagHolders{
 		dest:           fs.String("dest", "", "destination chain ref (domain|name|CAIP-2)"),
 		source:         fs.String("source", "", "single source chain ref (deposit)"),
@@ -482,9 +483,11 @@ func addEasyFlags(fs *flag.FlagSet) easyFlagHolders {
 		live:           fs.Bool("live", false, "load live inventory (testnet RPCs; no asserted balances)"),
 		balances:       &bals,
 		rpcs:           &rpcs,
+		froms:          &froms,
 	}
 	fs.Var(&bals, "balance", "asserted native balance ref=humanUSDC (repeatable)")
 	fs.Var(&rpcs, "rpc", "RPC override ref=url (repeatable)")
+	fs.Var(&froms, "from", "fixed deposit amount ref=humanUSDC (repeatable; multi deposit)")
 	return h
 }
 
@@ -506,6 +509,7 @@ func easyDepositFromFlags(h easyFlagHolders, execute bool) EasyDepositInput {
 		Source:       *h.source,
 		Amount:       *h.amount,
 		AmountAtomic: *h.amountAtomic,
+		From:         append([]string(nil), *h.froms...),
 	}
 }
 

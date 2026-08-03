@@ -30,10 +30,13 @@ go run ./cmd/usdc-liq consolidate -f examples/consolidate-testnet.json
 go run ./cmd/usdc-liq payment-funding -f -   # stdin JSON
 go run ./cmd/usdc-liq chains
 go run ./cmd/usdc-liq version
-# Easy mode (plan/consolidate): domain|name|caip2 + human USDC; exclusive with -f
+# Easy mode (plan/consolidate/deposit/move): domain|name|caip2 + human USDC; exclusive with -f
 go run ./cmd/usdc-liq plan \
-  --agent 0x… --pay-to 0x… --dest arc-testnet --amount 42 \
+  --agent 0x… --dest arc-testnet --amount 42 \
   --balance base-sepolia=100 --gateway-balance 80
+go run ./cmd/usdc-liq deposit \
+  --agent 0x… --from base-sepolia=3 --from arbitrum-sepolia=2 \
+  --balance base-sepolia=3 --balance arbitrum-sepolia=2
 # CLI-only:
 go run ./cmd/usdc-liq inventory -agent 0x…   # needs RPC env; no secrets in notes
 go run ./cmd/usdc-liq demo

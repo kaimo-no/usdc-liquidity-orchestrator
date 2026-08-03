@@ -13,7 +13,7 @@ Optional gitignored `.env` is loaded at startup (`internal/envfile`).
 |---|---|---|
 | `plan` | JSON (`-f`) **or** easy flags | `PlanResponse` (Phase B shortfall land; no pay_to) |
 | `consolidate` | JSON **or** easy flags | `PlanResponse` (Phase A full native → gateway) |
-| `deposit` | JSON **or** easy flags | `PlanResponse` (Phase A fixed-N single-source deposit) |
+| `deposit` | JSON **or** easy flags | `PlanResponse` (Phase A fixed-N single or multi-source deposit) |
 | `move` | JSON **or** easy flags | `PlanResponse` (Phase B land N on dest agent_self) |
 | `payment-funding` | JSON body | `PlanResponse` (Phase A multi-source deposits only) |
 | `chains` | none | `ChainsResponse` |
@@ -59,11 +59,40 @@ usdc-liq consolidate --agent 0x… --balance base-sepolia=10
 
 # Phase A deposit: fixed N on one source
 usdc-liq deposit --agent 0x… --source base-sepolia --amount 10 --balance base-sepolia=20
+# Phase A multi fixed amounts (XOR --source/--amount):
+usdc-liq deposit --agent 0x… \
+  --from base-sepolia=3 --from arbitrum-sepolia=2 \
+  --balance base-sepolia=3 --balance arbitrum-sepolia=2
+# JSON multi: sources[] on DepositRequest (examples/deposit-multi.json)
 # After deposit execute, wait ~13–19m finality before Phase B withdraw.
 
 # Phase B move: land N on dest agent_self (shortfall-only)
 usdc-liq move --agent 0x… --dest arc-testnet --amount 42 --gateway-balance 100
 ```
+
+### Deposit amounts: `--from` vs atomic JSON
+
+| Input | Units | Notes |
+|---|---|---|
+| Easy `--from REF=USDC` | **Human USDC only** (× 10^6 → atomic) | Same rules as `--amount` / `--balance`: refuse >6 fractional digits. Duplicate chain refs merge (sum). |
+| Easy single `--amount` | Human USDC (× 10^6) | XOR `--amount-atomic` |
+| Easy `--amount-atomic` | Raw whole atomic units | Single-source only |
+| JSON `sources[].amount_atomic` | **Raw whole atomic units** | Multi fixed-N; mutually exclusive with single `source_chain_caip2` / `amount_atomic` |
+| JSON single `amount_atomic` | Raw whole atomic units | With `source_chain_caip2` |
+
+There is no `--from-atomic` flag. For raw atomic multi-source, use `-f` JSON (`examples/deposit-multi.json`).
+
+### Multi-deposit execute and partial failure
+
+Execute is **fail-closed** by default. When live multi-step deposit execute is enabled:
+
+- Steps run as planned; if a later step fails after earlier deposits landed, **do not** re-submit the full original plan.
+- **Re-load inventory**, then **re-plan only remaining** fixed amounts for chains still needing deposit.
+- Duplicate `--from` / `sources[]` rows for the same chain are merged before plan — residual re-plans should state the remaining amount only.
+
+### `MAX_AMOUNT_ATOMIC` (Guard)
+
+Env `MAX_AMOUNT_ATOMIC` (via exec Guard) is a **per-step** cap on fund-moving step amounts (and plan `required` when set) — **not** a plan-total sum across multi-deposit steps. Two steps of 2 USDC each can pass a 2.5 USDC cap even though the plan total is 4 USDC.
 
 | Rule | Behaviour |
 |---|---|
@@ -73,6 +102,7 @@ usdc-liq move --agent 0x… --dest arc-testnet --amount 42 --gateway-balance 100
 | `--mainnet` + `--live` | refuse (MVP testnet inventory) |
 | `--live` alone | does **not** set execute |
 | Amount | `--amount` XOR `--amount-atomic`; no `USDC_SCALE_FACTOR` |
+| Multi deposit | `--from` XOR `--source`/`--amount`/`--amount-atomic` |
 
 ### Private key / argv risk
 

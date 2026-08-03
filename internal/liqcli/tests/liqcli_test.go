@@ -411,6 +411,110 @@ func TestMain_EasyDepositMissingSource_Exit2(t *testing.T) {
 	assert.Contains(t, stderr.String(), "source")
 }
 
+func TestMain_EasyDepositMultiDry(t *testing.T) {
+	agent := "0x" + strings.Repeat("d3", 20)
+	var stdout, stderr bytes.Buffer
+	code := liqcli.Main([]string{
+		"deposit",
+		"--agent", agent,
+		"--from", "base-sepolia=3",
+		"--from", "arbitrum-sepolia=2",
+		"--balance", "base-sepolia=3",
+		"--balance", "arbitrum-sepolia=2",
+	}, strings.NewReader(""), &stdout, &stderr)
+	assert.Equal(t, 0, code, "stderr=%s", stderr.String())
+	var resp types.PlanResponse
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &resp))
+	assert.Nil(t, resp.Error)
+	assert.True(t, resp.Plan.DryRun)
+	assert.Equal(t, "circle_gateway_deposit", resp.Plan.Action)
+	require.Len(t, resp.Plan.Steps, 2)
+	// Sorted CAIP-2: arb 421614 then base 84532
+	assert.Equal(t, "2000000", resp.Plan.Steps[0].AmountAtomic)
+	assert.Equal(t, "3000000", resp.Plan.Steps[1].AmountAtomic)
+	assert.NotContains(t, stderr.String(), agent)
+}
+
+func TestMain_EasyDepositMultiUnderfund_Exit1(t *testing.T) {
+	agent := "0x" + strings.Repeat("d4", 20)
+	var stdout, stderr bytes.Buffer
+	code := liqcli.Main([]string{
+		"deposit",
+		"--agent", agent,
+		"--from", "base-sepolia=3",
+		"--from", "arbitrum-sepolia=2",
+		"--balance", "base-sepolia=3",
+		"--balance", "arbitrum-sepolia=1",
+	}, strings.NewReader(""), &stdout, &stderr)
+	assert.Equal(t, 1, code)
+	var resp types.PlanResponse
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &resp))
+	require.NotNil(t, resp.Error)
+	assert.Equal(t, liqerr.CodeInsufficientLiquidity, resp.Error.Code)
+	assert.NotContains(t, stderr.String(), agent)
+}
+
+func TestMain_EasyDepositFromWithSource_Exit2(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := liqcli.Main([]string{
+		"deposit",
+		"--agent", "0x" + strings.Repeat("11", 20),
+		"--from", "base-sepolia=3",
+		"--source", "base-sepolia",
+		"--amount", "1",
+		"--balance", "base-sepolia=10",
+	}, strings.NewReader(""), &stdout, &stderr)
+	assert.Equal(t, 2, code)
+	assert.Contains(t, stderr.String(), "exclusive")
+}
+
+func TestMain_EasyDepositFromDuplicateChain_Merges(t *testing.T) {
+	// --from base=1 --from base=2 → human USDC ×10^6 → one step 3000000 atomic.
+	agent := "0x" + strings.Repeat("d5", 20)
+	var stdout, stderr bytes.Buffer
+	code := liqcli.Main([]string{
+		"deposit",
+		"--agent", agent,
+		"--from", "base-sepolia=1",
+		"--from", "base-sepolia=2",
+		"--balance", "base-sepolia=3",
+	}, strings.NewReader(""), &stdout, &stderr)
+	assert.Equal(t, 0, code, "stderr=%s", stderr.String())
+	var resp types.PlanResponse
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &resp))
+	assert.Nil(t, resp.Error)
+	assert.Equal(t, "circle_gateway_deposit", resp.Plan.Action)
+	require.Len(t, resp.Plan.Steps, 1)
+	assert.Equal(t, "eip155:84532", resp.Plan.Steps[0].FromChainCAIP2)
+	assert.Equal(t, "3000000", resp.Plan.Steps[0].AmountAtomic)
+	assert.NotContains(t, stderr.String(), agent)
+}
+
+func TestMain_DepositJSONMultiMode(t *testing.T) {
+	body := `{
+  "sources": [
+    {"chain_caip2": "eip155:84532", "amount_atomic": "3000000"},
+    {"chain_caip2": "eip155:421614", "amount_atomic": "2000000"}
+  ],
+  "inventory": {
+    "agent_address": "0xAgentSelf000000000000000000000000000001",
+    "balances": [
+      {"chain_caip2": "eip155:84532", "asset": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+       "amount_atomic": "3000000", "location": "native"},
+      {"chain_caip2": "eip155:421614", "asset": "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d",
+       "amount_atomic": "2000000", "location": "native"}
+    ]
+  }
+}`
+	var stdout, stderr bytes.Buffer
+	code := liqcli.Main([]string{"deposit", "-f", "-"}, strings.NewReader(body), &stdout, &stderr)
+	assert.Equal(t, 0, code, "stderr=%s", stderr.String())
+	var resp types.PlanResponse
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &resp))
+	assert.Equal(t, "circle_gateway_deposit", resp.Plan.Action)
+	require.Len(t, resp.Plan.Steps, 2)
+}
+
 func TestMain_EasyMoveDry(t *testing.T) {
 	agent := "0x" + strings.Repeat("e1", 20)
 	var stdout, stderr bytes.Buffer
